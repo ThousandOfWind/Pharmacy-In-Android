@@ -15,7 +15,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -63,13 +62,11 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.1")
 
     implementation(composeBom)
-    androidTestImplementation(composeBom)
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     implementation("androidx.room:room-runtime:2.6.1")
@@ -80,8 +77,6 @@ dependencies {
 
     implementation("com.google.mlkit:text-recognition-chinese:16.0.0")
 
+    // Only the focused JVM rule tests are maintained; no UI/instrumentation test stack.
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
 }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-    <cache-path
-        name="images"
-        path="images/" />
+    <!-- Retained so photos from the previous version remain readable. -->
+    <cache-path name="images" path="images/" />
+    <files-path name="medicine_photos" path="medicine_photos/" />
 </paths>

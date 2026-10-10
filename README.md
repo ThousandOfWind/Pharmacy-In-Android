@@ -1,21 +1,24 @@
 # Pharmacy-In-Android
 
-一个本地离线的安卓药品管理小程序（示例项目），核心功能：
+一个本地离线的安卓药箱管理小程序。交互围绕「看药箱 → 拍照核对 → 入库 → 更新余量」组织：
 
-- 拍照录入药品图片
-- 使用本地 OCR 提取药品文字信息（药品名称、保质期、功效等）
-- 手工新增/修改药品信息
-- 余量记录与余量统计（总余量、低余量数量）
-- 本地数据库保存，支持按名称/功效/备注搜索
+- **药箱首页**：药品卡片、搜索，以及临期、已过期、日期待补充筛选。
+- **独立添加页**：拍照、相册或手动录入；保存按钮固定在底部，未保存返回时确认放弃。
+- **本地中文 OCR**：照片识别后展示候选和原文，用户核对后再入库；不自动覆盖手工填写。
+- **药品详情**：放大照片、查看包装信息、更新余量、编辑资料、移除与撤销。
+- **余量＋单位**：区分未知与 0，不跨单位相加，不使用统一低余量阈值。
+- **本地持久保存**：Room 数据库、应用私有目录照片、屏幕旋转和系统重建时恢复填写草稿。
+
+交互设计和数据规则见 [docs/interaction-flow.md](docs/interaction-flow.md)。
 
 ## 数据字段
 
 - 药品名称（必填）
-- 保质期（可选）
+- 有效期至（可选，`YYYY-MM` 或 `YYYY-MM-DD`；月份精度按月末计算）
 - 主要功效（可选）
-- 余量（可选）
+- 余量及单位（可选，非负整数；有数量时必须选择单位）
 - 备注（可选）
-- 药品照片（可选）
+- 药品照片（可选，支持正面、有效期等多张照片，每条最多 12 张）
 
 ## 技术实现
 
@@ -24,11 +27,47 @@
 - ML Kit 中文文字识别（本地 OCR）
 - FileProvider + 相机拍照
 
+## 本地开发与构建（Windows）
+
+环境要求：
+
+- JDK 17，配置 `JAVA_HOME`，将 `%JAVA_HOME%\bin` 加入 `PATH`。
+- Android SDK，安装 `platform-tools`、`platforms;android-34` 和 `build-tools;34.0.0`，并接受对应 SDK 许可。
+- 配置 `ANDROID_HOME` 指向 SDK，将 `%ANDROID_HOME%\platform-tools` 加入 `PATH`。
+- 在项目根目录创建 `local.properties`（已被 Git 忽略），填写本机 SDK 路径，例如：
+
+```properties
+sdk.dir=C:/Users/zhiruizhu/AppData/Local/Android/Sdk
+```
+
+本仓库自带 Gradle Wrapper，无需额外安装 Gradle。在项目根目录运行：
+
+```powershell
+.\gradlew.bat --no-daemon assembleDebug
+.\gradlew.bat --no-daemon testDebugUnitTest lintDebug
+```
+
+APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
+Lint 报告：`app/build/reports/lint-results-debug.html`。
+仅保留 5 个必要的核心规则 UT：日期解析、有效期状态、表单与余量校验、OCR 明确标签候选、避免误取药名和生产日期。不新增 UI／仪器测试套件。
+
+页面布局、拍照权限、实际药盒识别和旧数据升级需在专用模拟器或设备上按需检查；UT 不代表这些真实设备流程已经验证。
+
+手机需 Android 8.0（API 26）或更高版本。连接手机并在手机上授权 USB 调试后，可手动安装：
+
+```powershell
+adb install -r .\app\build\outputs\apk\debug\app-debug.apk
+```
+
+此 APK 为调试版本，不是发布包。应用运行时使用本地数据库及内置 OCR；首次构建仍需联网下载依赖。
+也可使用 Android Studio 打开项目根目录，选择 JDK 17 后同步 Gradle。
+设置用户环境变量后，请重新打开终端或 IDE。
+
 ## APK Pipeline（GitHub Actions）
 
 仓库已配置自动构建 APK 的流水线：
 
-- Workflow 文件：`/home/runner/work/Pharmacy-In-Android/Pharmacy-In-Android/.github/workflows/build-apk.yml`
+- Workflow 文件：`.github/workflows/build-apk.yml`
 - 触发方式：
   - 手动触发（`workflow_dispatch`）
   - 推送到 `main/master`
@@ -50,4 +89,8 @@ adb install -r app-debug.apk
 
 ## 说明
 
-当前仓库提供的是基础实现骨架，便于后续继续扩展（比如提醒、分类、导出备份、多图片等）。
+当前为本地药箱管理第一版，不提供用药建议或自动服药计划。OCR 只提取明确标注的候选字段；生产日期和有效期时长不会被当作到期日期。保存前应以实际包装为准。
+
+数据库版本 3 使用显式的版本 2 → 3 迁移，不再静默清空旧记录。旧记录缺失单位或有效期格式不明确时，显示待补充/待核对，不自动推断。旧缓存照片若仍可读取，会转存到应用私有目录；已丢失的缓存照片无法恢复。
+
+照片保存在应用私有目录，清缓存不会删除新照片；卸载应用或清除应用数据仍会删除药箱。暂不提供备份导出、照片单独删除或长期撤销历史。
