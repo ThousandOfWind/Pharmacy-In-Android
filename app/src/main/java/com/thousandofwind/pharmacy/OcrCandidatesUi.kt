@@ -27,8 +27,7 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
             val leafletCount = MedicineInformationField.entries.count { it.group == MedicineInformationGroup.LEAFLET && c.information[it].isNotBlank() } + if (c.efficacy.isNotBlank()) 1 else 0
             Text("资料 $identityCount 项 · 说明书 $leafletCount 项", style = MaterialTheme.typography.bodySmall)
             if (c.expiry.isBlank()) Text("未识别到明确的到期日期；生产日期和有效期时长不会代填。", style = MaterialTheme.typography.bodySmall)
-            PenButton("采用空白资料", { update { fillEmptyOcrFields(this) } }, Modifier.fillMaxWidth(), enabled = !busy &&
-                (c.name.isNotBlank() || c.expiry.isNotBlank() || identityCount > 0))
+            PenButton("采用空白资料", { update { fillEmptyOcrFields(this) } }, Modifier.fillMaxWidth(), enabled = !busy && fillEmptyOcrFields(draft) != draft)
             c.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Error) }
             if (leafletCount > 0) {
                 Text("请确认照片对应当前药品的同厂家、同规格说明书。安全条目只逐项采用，不批量写入。", style = MaterialTheme.typography.bodySmall)

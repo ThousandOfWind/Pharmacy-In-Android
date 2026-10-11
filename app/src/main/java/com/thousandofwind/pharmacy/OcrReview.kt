@@ -9,9 +9,10 @@ fun fillEmptyOcrFields(draft: MedicineDraft, includeLeaflet: Boolean = false): M
         if (allowed && current[field].isBlank() && candidates.information[field].isNotBlank())
             current.withValue(field, candidates.information[field]) else current
     }
-    return draft.copy(
+    val filled = draft.copy(
         name = draft.name.ifBlank { candidates.name }, expiry = draft.expiry.ifBlank { candidates.expiry },
         efficacy = if (includeLeaflet) draft.efficacy.ifBlank { candidates.efficacy } else draft.efficacy,
-        information = info, reviewed = false
+        information = info
     )
+    return if (filled == draft) draft else filled.copy(reviewed = false)
 }
