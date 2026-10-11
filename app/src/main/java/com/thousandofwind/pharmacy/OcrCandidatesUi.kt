@@ -20,7 +20,7 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
             if (c.name.isNotBlank()) Text("药名：${c.name}")
             if (c.expiry.isNotBlank()) Text("有效期至：${c.expiry}")
             c.nameOptions.forEach { name ->
-                TextButton(onClick = { update { copy(name = name, reviewed = false) } }, enabled = draft.name.isBlank() && !busy) { Text("选择药名：$name") }
+                TextButton(onClick = { update { if (this.name.isBlank()) copy(name = name, reviewed = false) else this } }, enabled = draft.name.isBlank() && !busy) { Text("选择药名：$name") }
             }
             if (c.name.isBlank() && c.nameOptions.isEmpty()) Text("药名未提取到，可补拍正面或手动填写。", style = MaterialTheme.typography.bodySmall)
             val identityCount = MedicineInformationField.entries.count { it.group == MedicineInformationGroup.IDENTITY && c.information[it].isNotBlank() }
@@ -34,11 +34,11 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
                 Text("请确认照片对应当前药品的同厂家、同规格说明书。安全条目只逐项采用，不批量写入。", style = MaterialTheme.typography.bodySmall)
                 PaperDisclosure("逐项核对说明书候选", leaflet, { leaflet = !leaflet }) {
                     if (c.efficacy.isNotBlank()) CandidateValue("适应症 / 功能主治", c.efficacy, !busy && draft.efficacy.isBlank()) {
-                        update { copy(efficacy = candidates.efficacy, reviewed = false) }
+                        update { if (efficacy.isBlank()) copy(efficacy = candidates.efficacy, reviewed = false) else this }
                     }
                     MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.LEAFLET && c.information[it].isNotBlank() }.forEach { field ->
                         CandidateValue(field.label, c.information[field], !busy && draft.information[field].isBlank()) {
-                            update { copy(information = information.withValue(field, candidates.information[field]), reviewed = false) }
+                            update { if (information[field].isBlank()) copy(information = information.withValue(field, candidates.information[field]), reviewed = false) else this }
                         }
                     }
                 }
@@ -46,7 +46,7 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
             PaperDisclosure("核对资料候选", inspect, { inspect = !inspect }) {
                 MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.IDENTITY && c.information[it].isNotBlank() }.forEach { field ->
                     CandidateValue(field.label, c.information[field], !busy && draft.information[field].isBlank()) {
-                        update { copy(information = information.withValue(field, candidates.information[field]), reviewed = false) }
+                        update { if (information[field].isBlank()) copy(information = information.withValue(field, candidates.information[field]), reviewed = false) else this }
                     }
                 }
             }
