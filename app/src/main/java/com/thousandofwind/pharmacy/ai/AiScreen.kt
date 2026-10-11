@@ -11,6 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -83,7 +85,8 @@ fun AiScreen(viewModel: AiViewModel, dismiss: () -> Unit, openMedicine: (Long) -
                         }
                     }
                     Row {
-                        Checkbox(state.allowCabinet, viewModel::allowCabinet, enabled = !state.busy)
+                        Checkbox(state.allowCabinet, viewModel::allowCabinet, enabled = !state.busy,
+                            modifier = Modifier.semantics { contentDescription = "本次允许发送只读库存基本资料到 Azure" })
                         Text("本次允许查询库存基本资料（只读；不含备注、照片或说明书）", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     }
                     if (!state.acknowledged) Consent(state.config, state.acknowledged, viewModel::acknowledge, !state.busy)
@@ -109,7 +112,8 @@ fun AiScreen(viewModel: AiViewModel, dismiss: () -> Unit, openMedicine: (Long) -
 @Composable
 private fun Consent(config: AzureConnection, checked: Boolean, change: (Boolean) -> Unit, enabled: Boolean) {
     Row(Modifier.fillMaxWidth()) {
-        Checkbox(checked, change, enabled = enabled)
+        Checkbox(checked, change, enabled = enabled,
+            modifier = Modifier.semantics { contentDescription = "同意将对话和获准查询结果发送到 Azure，可能计费" })
         Text("同意将问题、最近对话和获准的查询结果发送到 ${config.endpoint.ifBlank { "配置的 Azure 资源" }}。Azure 可能按量计费，数据处理遵守该资源政策；关闭或删除对话不能撤回已发送数据。", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -145,7 +149,7 @@ private fun ConnectionDialog(state: AiUiState, viewModel: AiViewModel, dismiss: 
                 Consent(state.config, state.acknowledged, viewModel::acknowledge, !state.busy)
                 TextButton(onClick = viewModel::test, enabled = !state.busy && state.hasKey && state.acknowledged) { Text("测试已保存的连接（可能计费）") }
                 if (state.status.isNotBlank()) Text(state.status, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = { confirmRemove = true }, enabled = !state.busy && state.hasKey) { Text("移除连接和 Key") }
+                TextButton(onClick = { confirmRemove = true }, enabled = !state.busy) { Text("移除连接和 Key") }
                 TextButton(onClick = { key = ""; dismiss() }, enabled = !state.busy) { Text("返回助手") }
                 if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             }
