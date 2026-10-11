@@ -8,3 +8,4 @@
 .externalNativeBuild/
 .cxx/
 **/build/
+/.pi/pharmacy-e2e.local.json
