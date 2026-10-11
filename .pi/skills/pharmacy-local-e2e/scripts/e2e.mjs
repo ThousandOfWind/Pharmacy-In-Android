@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -122,6 +123,59 @@ function checkTools(c) {
   const avds = execute(c.emulator, ['-list-avds'], c.env, { quiet: true }).split(/\r?\n/).map(s => s.trim());
   if (!avds.includes(c.config.avdName)) throw new Error('Approved dedicated AVD does not exist; ask the user to provision it.');
 }
+export function reservationPaths(root, config) {
+  return [path.join(root, `avd-${config.avdName}.json`), path.join(root, `port-${config.port}.json`)];
+}
+
+export function reserveDevice(root, owner) {
+  fs.mkdirSync(root, { recursive: true });
+  const created = [];
+  try {
+    for (const file of reservationPaths(root, owner)) {
+      const fd = fs.openSync(file, 'wx'); created.push(file);
+      try { fs.writeFileSync(fd, JSON.stringify(owner)); } finally { fs.closeSync(fd); }
+    }
+  } catch (error) {
+    created.forEach(file => fs.unlinkSync(file));
+    throw new Error('AVD or port is reserved by another task. Use a separately authorized AVD and unused port; do not remove its reservation.');
+  }
+}
+
+export function verifyReservation(root, owner) {
+  for (const file of reservationPaths(root, owner)) {
+    const actual = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!owner.token || actual.token !== owner.token || actual.repo !== owner.repo || actual.avdName !== owner.avdName || actual.port !== owner.port)
+      throw new Error('Task device reservation mismatch; refusing device operation.');
+  }
+}
+
+export function releaseReservation(root, owner) {
+  verifyReservation(root, owner);
+  reservationPaths(root, owner).forEach(file => fs.unlinkSync(file));
+}
+
+const reservationRoot = () => path.join(os.tmpdir(), 'pharmacy-local-e2e-reservations');
+function reservedOwner(c) {
+  const file = path.join(c.state, 'device-reservation.json');
+  if (!fs.existsSync(file)) throw new Error('Run start for this task first; never attach to another task\'s running emulator.');
+  const owner = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (owner.repo !== c.repo || owner.avdName !== c.config.avdName || owner.port !== c.config.port) throw new Error('Local task reservation does not match current configuration.');
+  verifyReservation(reservationRoot(), owner);
+  return owner;
+}
+
+async function assertPortsFree(port) {
+  for (const number of [port, port + 1]) for (const host of ['127.0.0.1', '::1']) {
+    const occupied = await new Promise((resolve, reject) => {
+      const socket = net.connect({ host, port: number });
+      socket.once('connect', () => { socket.destroy(); resolve(true); });
+      socket.once('error', error => { socket.destroy(); if (['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(error.code)) resolve(false); else reject(error); });
+      socket.setTimeout(1500, () => { socket.destroy(); reject(new Error('Cannot prove emulator ports are free.')); });
+    });
+    if (occupied) throw new Error(`Port ${number} is occupied. Use an unused even port pair; do not stop the occupant.`);
+  }
+}
+
 async function withDeviceLock(c, operation) {
   const lockDir = path.join(os.tmpdir(), 'pharmacy-local-e2e-locks'); fs.mkdirSync(lockDir, { recursive: true });
   const file = path.join(lockDir, `${c.serial}.lock`);
@@ -166,7 +220,17 @@ async function main() {
   await withDeviceLock(c, async () => {
     if (action === 'start') {
       checkTools(c);
-      if (inventory(c).split(/\r?\n/).some(s => s.startsWith(`${c.serial}\t`))) { deviceReady(c); console.log('Dedicated emulator already running; ownership unchanged.'); return; }
+      if (inventory(c).split(/\r?\n/).some(s => s.startsWith(`${c.serial}\t`))) {
+        reservedOwner(c);
+        if (!fs.existsSync(ownership)) throw new Error('This task has no launch ownership; do not reuse the running emulator.');
+        deviceReady(c); console.log('This task\'s reserved emulator is already running.'); return;
+      }
+      if (fs.existsSync(ownership) || fs.existsSync(path.join(c.state, 'device-reservation.json'))) throw new Error('Previous launch/reservation needs inspection; do not relaunch or steal its device.');
+      await assertPortsFree(c.config.port);
+      const owner = { repo: c.repo, avdName: c.config.avdName, port: c.config.port, token: crypto.randomUUID() };
+      reserveDevice(reservationRoot(), owner);
+      try { fs.writeFileSync(path.join(c.state, 'device-reservation.json'), JSON.stringify(owner), { flag: 'wx' }); }
+      catch (error) { releaseReservation(reservationRoot(), owner); throw error; }
       const stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a'); const stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
       const launchStarted = new Date().toISOString();
       const child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
@@ -181,11 +245,17 @@ async function main() {
         },
         persistIdentity: creationTime => fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, creationTime, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: launchStarted })),
         rollbackLaunch: creationTime => {
-          if (!Number.isSafeInteger(child.pid) || child.pid <= 0) return; // No OS process was created.
+          if (!Number.isSafeInteger(child.pid) || child.pid <= 0) {
+            releaseReservation(reservationRoot(), owner);
+            fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+            return; // No OS process was created.
+          }
           const timeCheck = creationTime ? `$p.CreationDate.ToUniversalTime().ToString('o') -eq '${creationTime}'`
             : `$p.CreationDate.ToUniversalTime() -ge [datetime]'${launchStarted}'`;
           const rollback = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if (-not $p) { exit 0 }; if (-not ($p.Name -eq 'emulator.exe' -and (${timeCheck}) -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 }; & taskkill.exe /PID ${child.pid} /T /F; exit $LASTEXITCODE`;
           execute('powershell.exe', ['-NoProfile', '-Command', rollback], c.env, { quiet: true });
+          releaseReservation(reservationRoot(), owner);
+          fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
         },
       });
       const deadline = Date.now() + 180000;
@@ -193,6 +263,7 @@ async function main() {
       throw new Error(`Dedicated emulator did not boot within 180 seconds; review ${c.state}.`);
     }
     if (action === 'stop') {
+      const reservation = reservedOwner(c);
       if (!fs.existsSync(ownership)) throw new Error('This runner did not start this emulator; leave it running.');
       const owner = JSON.parse(fs.readFileSync(ownership, 'utf8'));
       if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator ownership mismatch; refusing shutdown.');
@@ -204,8 +275,12 @@ async function main() {
         // Recheck PID, creation time and launch arguments immediately before terminating only this owned process tree.
         terminateOwnedProcess: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} & taskkill.exe /PID ${owner.pid} /T /F; exit $LASTEXITCODE`], c.env, { quiet: true }),
       });
-      fs.unlinkSync(ownership); console.log(`Dedicated emulator stopped (${method}).`); return;
+      fs.unlinkSync(ownership);
+      releaseReservation(reservationRoot(), reservation);
+      fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+      console.log(`Dedicated emulator stopped (${method}); task reservation released.`); return;
     }
+    reservedOwner(c);
     deviceReady(c);
     const dir = outputDir(c); console.log(`Evidence: ${dir}`);
     if (action === 'screenshot') {

@@ -11,14 +11,29 @@ Maestro 独立安装，不添加 Android Gradle 依赖。固定 2.11.0，升级�
   "javaHome": "C:/path/to/jdk-17",
   "androidSdk": "C:/path/to/Android/Sdk",
   "maestroHome": "C:/path/to/maestro-2.11.0/maestro",
-  "avdName": "Pharmacy_E2E_Comparison_API34",
-  "port": 5556
+  "avdName": "Pharmacy_E2E_<Task>_API34",
+  "port": 5560
 }
 ```
 
-只使用用户已批准的专用 AVD。脚本不会创建、删除或 wipe AVD；不会自动下载工具或改 PATH／安全策略。Node 从现有环境运行。`javaHome` 和 `androidSdk` 省略时使用现有 `JAVA_HOME`、`ANDROID_HOME`／`ANDROID_SDK_ROOT`。Maestro 用 Java 调用官方 CLI，避免 Windows `.bat` 和多层 shell 引号问题。
+把 `<Task>` 替换为本任务名称，例如 `Backup`，不能原样使用占位符。每个并行任务使用不同的 AVD 和端口对，5560 只是示例。只使用用户已批准的专用 AVD。脚本不会创建、删除或 wipe AVD；不会自动下载工具或改 PATH／安全策略。Node 从现有环境运行。`javaHome` 和 `androidSdk` 省略时使用现有 `JAVA_HOME`、`ANDROID_HOME`／`ANDROID_SDK_ROOT`。Maestro 用 Java 调用官方 CLI，避免 Windows `.bat` 和多层 shell 引号问题。
 
 每个新 worktree 需要自己的本机配置。不要把绝对路径和日志提交到 Git。许可信息：https://github.com/mobile-dev-inc/Maestro 。官方文档：https://docs.maestro.dev/get-started/maestro-mcp 和 https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli 。
+
+## 获授权后创建独立 AVD
+
+先查询 `emulator -list-avds`、现有进程/设备，以及候选偶数端口和下一奇数端口在 IPv4/IPv6 上是否空闲。不读取或复制已有个人 AVD 数据；不终止占用者、不复用实验任务设备。
+
+用户明确允许新 AVD 后，用已安装的 SDK 官方 `avdmanager` 创建，而不是克隆旧模拟器：
+
+```powershell
+# Android SDK 已安装此 system image、设备定义和 JDK 时才执行：
+avdmanager.bat create avd --name Pharmacy_E2E_Backup_API34 --package "system-images;android-34;google_apis;x86_64" --device pixel_6
+```
+
+- 不传 `--force`，同名已存在就停止核对；缺少 system image、SDK 许可或工具时报告阻塞，不自行下载/接受许可。
+- 创建仅是设备准备，不自动运行 App 或清数据；还要明确确认该 AVD 的本 App 测试数据可丢弃、允许本次清空。
+- 在任务 worktree 的 Git 忽略配置写入新 AVD 和空闲端口，然后 `doctor` → `start`。配置变更不代表可以删除旧模拟器。
 
 ## 验收入口
 
@@ -38,7 +53,9 @@ node <skill-absolute-path>/scripts/e2e.mjs stop
 
 **单独确认破坏性操作**：AVD 名称或前缀不能证明数据可丢弃。每次运行都需要用户明确允许本次清空该 AVD 的测试 App 数据，再传 `--allow-test-data-reset`；无参数时在构建、安装或设备操作之前拒绝执行。即使使用自定义流程也需要确认，不能只检查根 YAML 而漏掉子流程。流程执行前重新检查 AVD 身份及本次 opt-in，并在 `result.json` 中记录。smoke YAML 也在任何 `launchApp/clearState` 前检查 `PHARMACY_ALLOW_TEST_DATA_RESET`；runner 仅在 opt-in 后传入该变量。直接调用 YAML 而未显式确认会失败。skill 不可把参数或变量当作无条件默认值。
 
-脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。该锁不约束其他工具，所以不要同时开 agent-device、其他 Maestro 或手工操作此 AVD。
+脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。此外，`start` 在宿主机临时目录 `pharmacy-local-e2e-reservations` 中分别预留 AVD 名称与端口，直到已验证的 `stop`；本地 `build/local-e2e/state/device-reservation.json` 保存任务身份。不同 AVD/端口可并行，同 AVD 换端口或同端口换 AVD 都拒绝。`run/inspect/screenshot` 必须有当前 worktree 的预留。
+
+预留不是 OS 沙箱，也无法控制其他工具；所有外部验收脚本/手动操作都必须使用分配串口，不与其他任务共享此 AVD。已有旧 runner 启动但未登记预留的设备不自动迁移/接管，改用单独新 AVD。worktree 移动后身份路径可能不匹配，应在移动前停止自有设备；不能编辑预留冒领所有权。
 
 `start` 记录进程 PID、创建时间、AVD、端口和所属 worktree。启动后如果身份探测、时间校验或 ownership 写入失败，会重新核对该次启动的 PID／AVD／端口及创建时间，回滚自有进程树；无法证明身份或回滚失败时明确报告并停止，不扩大权限或终止其他进程。`stop` 先验证该记录与实际进程匹配；即使启动超时且 ADB 未就绪，也能终止严格匹配的自有进程树，不按进程名称批量终止。不符合创建时间／命令行的 PID（包括复用的 PID）会被拒绝。
 

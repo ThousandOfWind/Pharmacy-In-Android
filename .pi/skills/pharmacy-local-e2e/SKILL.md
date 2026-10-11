@@ -13,7 +13,7 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
 - 在**本次开发 worktree 的项目根目录**执行命令。脚本以当前 Git 根目录构建，不会使用旧对比 APK。
 - 仅功能开发／修复或用户明确要求运行时操作模拟器。审阅、规划或仅安装 skill 不授权业务操作。
 - 若当前项目存在 `AGENTS.md`，先读取它；同时阅读 [README 的本地开发与构建说明](../../../README.md)，不存在的指导文件不作为运行前提。保护未提交修改，遵循项目 worktree 开发规则；项目内 skill、脚本和文档改动同样需要走提交、PR 与 review 流程。本 skill 的调用仅执行本地验收，不独立触发 push、PR、合并或部署。
-- 阅读 [references/local-testing.md](references/local-testing.md)，了解环境、键盘和常见失败。
+- 阅读 [references/local-testing.md](references/local-testing.md)，了解独立 AVD 创建、任务预留、环境、键盘和常见失败。创建新 AVD 与清空测试 App 数据需用户明确授权，不能因安装 skill 推定授权。
 - 将本 skill 的 `scripts/e2e.mjs` 解析为**绝对路径**；以下 `<runner>` 代表它。不要把占位符原样交给 shell。
 
 ## 执行步骤
@@ -21,7 +21,7 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
 1. `node <runner> doctor`：检查环境、固定 Maestro 版本、专用 AVD 和当前项目。
    - 配置文件是当前项目根目录 `.pi/pharmacy-e2e.local.json`，只含工具路径和专用 AVD 名称，不能放凭据。
    - 缺工具、未获 ADB 授权、端口被其他 AVD 占用时停止，报告阻塞；不自动安装、升级、禁用安全策略或操作其他设备。
-2. `node <runner> start`：仅启动配置的专用模拟器。不会清理日常设备。
+2. **先隔离设备，再 `node <runner> start`**：每个并行任务必须使用独立、明确授权的 AVD 与空闲偶数端口对；不能共享旧的 Comparison AVD。`start` 预留 AVD 名称和端口直到 `stop`，仅启动当前任务设备；已运行设备仅在本任务预留和启动身份均匹配时复用，不附着到其他任务。
 3. 先取得用户对**配置的 AVD 可丢弃、允许本次清空测试 App 数据**的明确授权，再运行 `node <runner> run --allow-test-data-reset`：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
    - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。AVD 名称前缀不证明数据可丢弃；未明确授权时停止询问，不自行补上确认参数。每次 `run` 均需显式 opt-in，避免子流程清数据漏检；在执行流程前重新验证设备身份及本次确认。smoke YAML 本身还检查 `PHARMACY_ALLOW_TEST_DATA_RESET`，runner 仅在确认后传入该值；未经确认不能直接设置变量绕过入口。
    - 可以 `node <runner> run --allow-test-data-reset --flow <absolute-yaml-path>` 执行本任务相关的小流程。即使自定义流程不清数据，也要求确认，因为入口不声称提供 YAML 沙箱。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
@@ -31,6 +31,14 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
    - 不把真实 Bug 的断言删除、设 optional 或改成恒真来让流程通过。
 5. 验证完成或启动超时后 `node <runner> stop`：校验本 runner 启动的 PID、创建时间、AVD 和端口。ADB 就绪时正常关闭；未就绪时仅终止通过上述校验的自有进程树。身份不符时拒绝，不关闭其他运行者启动的设备。
 6. 报告：验证的 APK hash／提交、用例、通过／失败／阻塞、证据目录和未验证项。不提交截图、日志、机器路径或数据库。
+
+## 并行任务设备边界
+
+- 独立 worktree 不等于独立设备：任务必须分别配置 `avdName` 和 `port`，例如 Backup API34 / 5560 与 Copilot API34 / 5558；端口仅为示例，使用前探测。
+- AVD 与端口预留跨命令存续；`run/inspect/screenshot/stop` 要求本任务预留，不能跳过 `start` 操作旧运行设备。预留冲突或前次启动残留时停止，不自动删除、抢占或改选另一台设备。
+- 所有 ADB、Maestro、临时测试脚本与手动验收都明确指定本任务串口；禁止省略 `-s/--udid` 或使用共享默认设备。非本 runner 的工具也必须尊重此边界。
+- 若看到其他任务界面/数据、设备身份变化或端口占用，立即停止操作，不 force-stop/卸载/清空其他 App，不关闭其他任务的模拟器。
+- 本 runner 不自动创建、下载或 wipe AVD。获授权后可以用现有 SDK 官方 avdmanager 单独创建任务 AVD，操作步骤见本地配置说明；不复制个人设备或账号数据。
 
 ## 新功能验收策略
 
