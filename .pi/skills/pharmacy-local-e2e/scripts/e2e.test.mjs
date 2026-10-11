@@ -1,12 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateConfig, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
+import { validateConfig, parseRunArgs, assertResetConsent, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
 
 const valid = { javaHome: 'C:/trusted/jdk', androidSdk: 'C:/trusted/sdk', maestroHome: 'C:/trusted/maestro', avdName: 'Pharmacy_E2E_Comparison_API34', port: 5556 };
 test('only explicitly named dedicated emulator and local absolute paths are accepted', () => {
   assert.doesNotThrow(() => validateConfig(valid));
   for (const patch of [{ avdName: 'Pharmacy_Local_API34' }, { port: 5557 }, { port: 7000 }, { maestroHome: './maestro' }]) {
     assert.throws(() => validateConfig({ ...valid, ...patch }));
+  }
+});
+test('destructive flow execution requires a separate per-invocation opt-in', () => {
+  assert.throws(() => assertResetConsent(parseRunArgs([])));
+  assert.throws(() => assertResetConsent(parseRunArgs(['--flow', 'smoke.yaml'])));
+  assert.throws(() => assertResetConsent({ allowTestDataReset: 'true' }));
+  for (const args of [
+    ['--allow-test-data-reset'],
+    ['--allow-test-data-reset', '--flow', 'smoke.yaml'],
+    ['--flow', 'smoke.yaml', '--allow-test-data-reset'],
+  ]) assert.doesNotThrow(() => assertResetConsent(parseRunArgs(args)));
+  for (const args of [['--flow'], ['--flow', '--allow-test-data-reset'], ['--allow-test-data-reset', '--allow-test-data-reset'], ['--unknown']]) {
+    assert.throws(() => parseRunArgs(args));
   }
 });
 test('identity checks fail closed instead of accepting partial names or error output', () => {

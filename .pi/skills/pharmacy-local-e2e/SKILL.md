@@ -12,7 +12,7 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
 
 - 在**本次开发 worktree 的项目根目录**执行命令。脚本以当前 Git 根目录构建，不会使用旧对比 APK。
 - 仅功能开发／修复或用户明确要求运行时操作模拟器。审阅、规划或仅安装 skill 不授权业务操作。
-- 阅读项目 `AGENTS.md`。保护未提交修改，遵循 worktree 开发规则；项目内 skill、脚本和文档改动同样需要走提交、PR 与 review 流程。本 skill 的调用仅执行本地验收，不独立触发 push、PR、合并或部署。
+- 若当前项目存在 `AGENTS.md`，先读取它；同时阅读 [README 的本地开发与构建说明](../../../README.md)，不存在的指导文件不作为运行前提。保护未提交修改，遵循项目 worktree 开发规则；项目内 skill、脚本和文档改动同样需要走提交、PR 与 review 流程。本 skill 的调用仅执行本地验收，不独立触发 push、PR、合并或部署。
 - 阅读 [references/local-testing.md](references/local-testing.md)，了解环境、键盘和常见失败。
 - 将本 skill 的 `scripts/e2e.mjs` 解析为**绝对路径**；以下 `<runner>` 代表它。不要把占位符原样交给 shell。
 
@@ -22,9 +22,9 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
    - 配置文件是当前项目根目录 `.pi/pharmacy-e2e.local.json`，只含工具路径和专用 AVD 名称，不能放凭据。
    - 缺工具、未获 ADB 授权、端口被其他 AVD 占用时停止，报告阻塞；不自动安装、升级、禁用安全策略或操作其他设备。
 2. `node <runner> start`：仅启动配置的专用模拟器。不会清理日常设备。
-3. `node <runner> run`：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
-   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。只有身份检查通过才运行。
-   - 可以 `node <runner> run --flow <absolute-yaml-path>` 执行本任务相关的小流程。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
+3. 先取得用户对**配置的 AVD 可丢弃、允许本次清空测试 App 数据**的明确授权，再运行 `node <runner> run --allow-test-data-reset`：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
+   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。AVD 名称前缀不证明数据可丢弃；未明确授权时停止询问，不自行补上确认参数。每次 `run` 均需显式 opt-in，避免子流程清数据漏检；在执行流程前重新验证设备身份及本次确认。
+   - 可以 `node <runner> run --allow-test-data-reset --flow <absolute-yaml-path>` 执行本任务相关的小流程。即使自定义流程不清数据，也要求确认，因为入口不声称提供 YAML 沙箱。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
    - 没有“跳过构建并当作当前版本通过”的选项。
 4. 失败后 `node <runner> inspect` 获取精简的界面文字、ID、边界；`node <runner> screenshot` 保存当前屏幕。通过 `read` 查看失败截图和相应层级，定位问题后重跑。
    - 不仅凭编译、RPC 成功、点击成功或“保存成功”提示判断功能正确。断言保存后的卡片、详情、余量和重启后的数据。

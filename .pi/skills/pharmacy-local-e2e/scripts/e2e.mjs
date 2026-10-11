@@ -19,6 +19,22 @@ export function validateConfig(config) {
   }
 }
 
+export function parseRunArgs(args) {
+  const options = { allowTestDataReset: false, flow: undefined };
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--allow-test-data-reset' && !options.allowTestDataReset) {
+      options.allowTestDataReset = true;
+    } else if (args[i] === '--flow' && options.flow === undefined && args[i + 1] && !args[i + 1].startsWith('--')) {
+      options.flow = args[++i];
+    } else throw new Error('Unexpected or duplicate run arguments.');
+  }
+  return options;
+}
+
+export function assertResetConsent(options) {
+  if (options.allowTestDataReset !== true) throw new Error('Maestro flows may clear the test App database. Stop and obtain explicit user approval for the disposable AVD, then pass --allow-test-data-reset for this run.');
+}
+
 export function assertDeviceIdentity(output, expected) {
   const lines = output.split(/\r?\n/).map(s => s.trim()).filter(s => s && s !== 'OK');
   if (lines.length !== 1 || lines[0] !== expected) throw new Error('Device identity mismatch; refusing to install, reset or operate this device.');
@@ -114,8 +130,11 @@ function resolveFlow(c, input) {
 
 async function main() {
   const [action, ...args] = process.argv.slice(2);
-  if (!['doctor', 'start', 'run', 'inspect', 'screenshot', 'stop'].includes(action)) throw new Error('Usage: e2e.mjs doctor|start|run [--flow <path>]|inspect|screenshot|stop');
-  if (args.length && !(action === 'run' && args.length === 2 && args[0] === '--flow')) throw new Error('Unexpected arguments.');
+  if (!['doctor', 'start', 'run', 'inspect', 'screenshot', 'stop'].includes(action)) throw new Error('Usage: e2e.mjs doctor|start|run --allow-test-data-reset [--flow <path>]|inspect|screenshot|stop');
+  const runOptions = action === 'run' ? parseRunArgs(args) : {};
+  if (action !== 'run' && args.length) throw new Error('Unexpected arguments.');
+  // All flows require opt-in: checking only the root YAML would miss destructive child flows.
+  if (action === 'run') assertResetConsent(runOptions);
   const c = loadContext();
   const ownership = path.join(c.state, 'emulator-started.json');
   if (action === 'doctor') {
@@ -163,7 +182,7 @@ async function main() {
     const result = { status: 'BLOCKED', started: new Date().toISOString(), repo: c.repo, appId: APP, avd: c.config.avdName, serial: c.serial, maestro: VERSION };
     const started = performance.now();
     try {
-      const flow = resolveFlow(c, args[1]); checkTools(c); result.flow = flow;
+      const flow = resolveFlow(c, runOptions.flow); checkTools(c); result.flow = flow;
       result.commit = execute('git', ['rev-parse', 'HEAD'], c.env, { cwd: c.repo, quiet: true }).trim();
       result.worktreeStatus = execute('git', ['status', '--short'], c.env, { cwd: c.repo, quiet: true }).trim();
       console.log('Building the current worktree APK…');
@@ -176,7 +195,8 @@ async function main() {
       if (!installed) throw new Error('Installed APK not found.');
       const hash = c.adbCall(['shell', 'sha256sum', installed], { quiet: true }).trim().split(/\s+/)[0];
       if (hash !== result.apkSha256) throw new Error('Installed APK hash differs from the current build.');
-      deviceReady(c); result.status = 'FAILED';
+      // Recheck both the resolved device identity and this invocation's explicit consent just before execution.
+      deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
       c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
         '--test-output-dir', path.join(dir, 'maestro'), flow], { timeout: 300000, log: path.join(dir, 'maestro.log') });
       if (!fs.existsSync(path.join(dir, 'report.xml'))) throw new Error('Maestro succeeded without the expected JUnit report.');

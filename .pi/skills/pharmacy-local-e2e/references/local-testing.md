@@ -27,13 +27,16 @@ Maestro 独立安装，不添加 Android Gradle 依赖。固定 2.11.0，升级�
 ```powershell
 node <skill-absolute-path>/scripts/e2e.mjs doctor
 node <skill-absolute-path>/scripts/e2e.mjs start
-node <skill-absolute-path>/scripts/e2e.mjs run
+# 仅在用户已明确确认该 AVD 可丢弃、允许本次清空测试 App 数据后：
+node <skill-absolute-path>/scripts/e2e.mjs run --allow-test-data-reset
 node <skill-absolute-path>/scripts/e2e.mjs inspect
 node <skill-absolute-path>/scripts/e2e.mjs screenshot
 node <skill-absolute-path>/scripts/e2e.mjs stop
 ```
 
 默认 smoke 覆盖：空名称 → 中文录入 → 数量需单位 → 保存后库存卡片 → 搜索 → 详情 → 更新余量 → 进程重启持久化。它使用前缀 `E2E-` 的合成数据，不触发相机或进入私人应用。
+
+**单独确认破坏性操作**：AVD 名称或前缀不能证明数据可丢弃。每次运行都需要用户明确允许本次清空该 AVD 的测试 App 数据，再传 `--allow-test-data-reset`；无参数时在构建、安装或设备操作之前拒绝执行。即使使用自定义流程也需要确认，不能只检查根 YAML 而漏掉子流程。流程执行前重新检查 AVD 身份及本次 opt-in，并在 `result.json` 中记录。skill 不可把该参数当作无条件默认值。
 
 脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。该锁不约束其他工具，所以不要同时开 agent-device、其他 Maestro 或手工操作此 AVD。
 
