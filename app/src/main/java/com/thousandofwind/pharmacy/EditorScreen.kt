@@ -31,7 +31,7 @@ fun EditorScreen(
         if (state.session.error != null && medicineTagsError(draft.tags + draft.tagInput) != null) { optional = true; tags = true }
         if (state.session.error != null && medicineInformationError(draft.information) != null) {
             optional = true
-            if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.IDENTITY && medicineInformationFieldError(it, draft.information[it]) != null }) identity = true
+            if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.IDENTITY && it != MedicineInformationField.STORAGE_LOCATION && medicineInformationFieldError(it, draft.information[it]) != null }) identity = true
             if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && medicineInformationFieldError(it, draft.information[it]) != null }) leaflet = true
         }
     }
@@ -107,8 +107,9 @@ fun EditorScreen(
             QuantityFields(draft.quantity, draft.unit, !state.busy,
                 { value -> update { copy(quantity = value) } }, { value -> update { copy(unit = value) } })
             Text("不填写代表未知，0 代表已用完。不同单位的余量不会相加。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
-            PaperField(value = draft.information.storageLocation, onValueChange = { value -> update { copy(information = information.withValue(MedicineInformationField.STORAGE_LOCATION, value)) } },
-                label = "存放位置（可选）", enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+            MedicineInformationInput(MedicineInformationField.STORAGE_LOCATION, draft.information.storageLocation, !state.busy) { value ->
+                update { copy(information = information.withValue(MedicineInformationField.STORAGE_LOCATION, value)) }
+            }
             PaperDisclosure("品牌、规格、厂家等药品资料", identity, { identity = !identity }) {
                 MedicineInformationFields(draft.information, MedicineInformationGroup.IDENTITY, !state.busy, exclude = setOf(MedicineInformationField.STORAGE_LOCATION)) { field, value ->
                     update { copy(information = information.withValue(field, value)) }

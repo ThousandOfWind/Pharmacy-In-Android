@@ -12,17 +12,22 @@ fun MedicineInformationFields(
     exclude: Set<MedicineInformationField> = emptySet(), update: (MedicineInformationField, String) -> Unit
 ) {
     MedicineInformationField.entries.filter { it.group == group && it !in exclude }.forEach { field ->
-        val value = information[field]
-        val error = medicineInformationFieldError(field, value)
-        PaperField(
-            value = value, onValueChange = { update(field, it) }, label = field.label,
-            singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
-            maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,
-            supportingText = {
-                Text(error ?: listOf(field.hint, "可留空，最多 ${field.maxLength} 个字符。").filter(String::isNotBlank).joinToString(" "))
-            }, modifier = Modifier.fillMaxWidth()
-        )
+        MedicineInformationInput(field, information[field], enabled) { update(field, it) }
     }
+}
+
+@Composable
+fun MedicineInformationInput(field: MedicineInformationField, value: String, enabled: Boolean, update: (String) -> Unit) {
+    val error = medicineInformationFieldError(field, value)
+    PaperField(
+        value = value, onValueChange = update, label = field.label,
+        singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
+        maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,
+        supportingText = {
+            Text(error ?: listOf(field.hint, "可留空，最多 ${field.maxLength} 个字符。").filter(String::isNotBlank).joinToString(" "),
+                style = MaterialTheme.typography.bodySmall, color = if (error != null) PaperPalette.Error else PaperPalette.Muted)
+        }, modifier = Modifier.fillMaxWidth()
+    )
 }
 
 @Composable
