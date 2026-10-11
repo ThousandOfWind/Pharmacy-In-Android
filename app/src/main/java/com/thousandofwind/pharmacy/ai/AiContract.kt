@@ -22,7 +22,7 @@ fun connectionError(value: AzureConnection): String? {
         !listOf(".openai.azure.com", ".cognitiveservices.azure.com", ".services.ai.azure.com").any { suffix ->
             uri.host.endsWith(suffix) && uri.host.removeSuffix(suffix).matches(Regex("[A-Za-z0-9-]+"))
         } -> "仅支持 Azure 公有云资源地址（如 https://资源名.openai.azure.com）"
-        !value.deployment.matches(Regex("[A-Za-z0-9_.-]{1,100}")) -> "deployment 名称为 1–100 个字母、数字或 ._-，不是模型显示名称"
+        value.deployment in setOf(".", "..") || !value.deployment.matches(Regex("[A-Za-z0-9_.-]{1,100}")) -> "deployment 名称为 1–100 个字母、数字或 ._-，不是模型显示名称"
         value.api == AzureApi.DEPLOYMENT && !value.apiVersion.matches(Regex("20\\d{2}-\\d{2}-\\d{2}(-preview)?")) -> "API version 请填 YYYY-MM-DD 或 YYYY-MM-DD-preview"
         else -> null
     }
@@ -70,7 +70,8 @@ class AssistantEngine {
             retained.add(0, turn); size += addition
         }
         val messages = mutableListOf<AiMessage>()
-        retained.forEach { messages += AiMessage.User(it.question); messages += AiMessage.Assistant(it.answer) }
+        retained.forEach { messages += AiMessage.User(it.question); messages += AiMessage.Assistant(
+            if (it.references.isEmpty()) it.answer else "[历史库存查询，可能已变化，不是当前库存] ${it.answer}") }
         messages += AiMessage.User(question)
         val references = linkedMapOf<Long, MedicineReference>()
         val seenIds = mutableSetOf<String>()

@@ -33,9 +33,13 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                 val config = withContext(Dispatchers.IO) { settings.load() }
                 val hasKey = withContext(Dispatchers.IO) { credentials.read(config.endpoint)?.isNotBlank() == true }
                 state.update { it.copy(config = config, hasKey = hasKey) }
-                sessions.observeSessions().collect { rows -> state.update { it.copy(sessions = rows) } }
             } catch (e: CancellationException) { throw e }
-              catch (_: Exception) { state.update { it.copy(error = "AI 本地存储无法读取，请检查连接设置；原药箱不受影响") } }
+              catch (_: Exception) { state.update { it.copy(error = "AI 连接无法读取，请重新保存或移除连接；本地会话与药箱不受影响") } }
+        }
+        viewModelScope.launch {
+            try { sessions.observeSessions().collect { rows -> state.update { it.copy(sessions = rows) } } }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { state.update { it.copy(error = "AI 会话列表无法读取；原药箱不受影响") } }
         }
     }
     fun input(value: String) { if (!state.value.busy) state.update { it.copy(input = value.take(MAX_QUESTION)) } }
@@ -157,7 +161,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                 val result = withTimeout(90_000) {
                     val key = withContext(Dispatchers.IO) { credentials.read(current.config.endpoint) } ?: error("Missing key")
                     val history = sessions.recent(selected.id).asReversed().map { Json.decodeFromString<ChatTurn>(it.turnJson) }
-                    val cabinet = if (current.allowCabinet) MedicineTools { AppDatabase.getInstance(getApplication()).medicineDao().snapshot() } else null
+                    val cabinet = if (current.allowCabinet) MedicineTools { AppDatabase.getInstance(getApplication()).medicineDao().aiSnapshot() } else null
                     withContext(Dispatchers.IO) { AzureModelAdapter(current.config, key).use { adapter ->
                         AssistantEngine().run(current.input.trim(), history, adapter, cabinet,
                             { delta -> state.update { it.copy(partial = (it.partial + delta).take(MAX_OUTPUT)) } },

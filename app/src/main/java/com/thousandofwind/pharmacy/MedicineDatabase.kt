@@ -61,6 +61,9 @@ interface MedicineDao {
     @Query("SELECT * FROM medicines")
     suspend fun snapshot(): List<MedicineEntity>
 
+    @Query("SELECT id, name, expiry_date, remaining_quantity, quantity_unit, info_brand_name, info_generic_name, info_specification, info_storage_location FROM medicines ORDER BY created_at DESC, id DESC")
+    suspend fun aiSnapshot(): List<com.thousandofwind.pharmacy.ai.AiMedicineRecord>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MedicineEntity): Long
 

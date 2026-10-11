@@ -16,6 +16,7 @@ class AiRulesTest {
         assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com@evil.test", "deploy")))
         assertNotNull(connectionError(AzureConnection("http://resource.openai.azure.com", "deploy")))
         assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com", "../deploy")))
+        listOf(".", "..").forEach { assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com", it))) }
         for (api in AzureApi.entries) {
             val config = AzureConnection("https://test.openai.azure.com", "my-deployment", api)
             val mock = MockEngine { request ->
@@ -76,9 +77,8 @@ class AiRulesTest {
     }
     @Test fun readOnlyProjectionAndTextSessionRoundTrip() = runBlocking {
         var snapshots = 0
-        val record = MedicineEntity(id = 9, name = "测试药", expiryDate = "", efficacy = "sensitive-efficacy", notes = "private-notes",
-            remainingQuantity = 0, photoUri = "private-photo", ocrRawText = "private-ocr", createdAt = 1,
-            quantityUnit = "片", information = MedicineInformation(brandName = "测试品牌", storageLocation = "抽屉", contraindications = "private-leaflet"))
+        val record = AiMedicineRecord(id = 9, name = "测试药", expiryDate = "", remainingQuantity = 0,
+            quantityUnit = "片", brandName = "测试品牌", genericName = "", specification = "", storageLocation = "抽屉")
         val tool = MedicineTools { snapshots++; listOf(record) }
         assertTrue(tool.execute(ToolCall("1", "delete_medicine", "{}")).text.contains("error"))
         assertTrue(tool.execute(ToolCall("2", "search_medicines", "{\"query\":42}")).text.contains("error"))
