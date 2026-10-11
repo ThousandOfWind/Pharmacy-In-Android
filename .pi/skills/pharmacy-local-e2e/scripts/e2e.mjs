@@ -137,6 +137,7 @@ export function reserveDevice(root, owner) {
     }
   } catch (error) {
     created.forEach(file => fs.unlinkSync(file));
+    if (error.code !== 'EEXIST') throw error;
     throw new Error('AVD or port is reserved by another task. Use a separately authorized AVD and unused port; do not remove its reservation.');
   }
 }
