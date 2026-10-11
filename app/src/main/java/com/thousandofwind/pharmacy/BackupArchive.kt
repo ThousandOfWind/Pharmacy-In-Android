@@ -13,6 +13,32 @@ private const val MANIFEST_ENTRY = "cabinet.bin"
 
 data class CheckedBackup(val document: BackupDocument, val photos: Map<String, File>)
 
+/** Verify the selected provider's bytes without buffering a whole backup in memory. */
+internal fun verifyBackupCopy(input: InputStream, expected: File) {
+    val expectedSize = expected.length()
+    require(expectedSize in 1..MAX_BACKUP_BYTES) { "本地备份大小无效" }
+    val actualDigest = MessageDigest.getInstance("SHA-256")
+    val buffer = ByteArray(64 * 1024)
+    var size = 0L
+    while (true) {
+        val count = input.read(buffer)
+        if (count == -1) break
+        size += count
+        require(size <= expectedSize) { "目标备份与导出内容不一致，请重新保存" }
+        actualDigest.update(buffer, 0, count)
+    }
+    require(size == expectedSize) { "目标备份不完整，请重新保存" }
+    val expectedDigest = MessageDigest.getInstance("SHA-256")
+    expected.inputStream().use { source ->
+        while (true) {
+            val count = source.read(buffer)
+            if (count == -1) break
+            expectedDigest.update(buffer, 0, count)
+        }
+    }
+    require(MessageDigest.isEqual(expectedDigest.digest(), actualDigest.digest())) { "目标备份校验失败，请重新保存" }
+}
+
 /** Streams only exact named entries into a private staging directory, never ZIP paths. */
 fun readBackupArchive(input: InputStream, staging: File): CheckedBackup {
     require(staging.isDirectory && staging.listFiles().orEmpty().isEmpty()) { "备份暂存目录不可用" }

@@ -141,7 +141,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                             InkIconButton(InkSymbol.MORE, "更多", { showMore = true })
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
                                 DropdownMenuItem(text = { Text("AI 助手") }, onClick = { showMore = false; showAi = true })
-                                DropdownMenuItem(text = { Text("备份与恢复") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
+                                DropdownMenuItem(text = { Text("备份与换机") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
                                     onClick = { showMore = false; showBackup = true })
                                 DropdownMenuItem(text = { Text("关于") }, onClick = { showMore = false; showAbout = true })
                             }
@@ -189,7 +189,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                     else -> page.session.screen
                 }) {
                     when (page.session.screen) {
-                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup)
+                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup,
+                            importBackup = { showBackup = true }, canImport = !page.busy && !page.scanning)
                         Screen.GROUP -> page.selectedGroup?.let { group ->
                             GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
                         } ?: Column(Modifier.padding(24.dp)) {
@@ -219,11 +220,21 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     }
     if (showAbout) AboutDialog(updateViewModel, onDismiss = { showAbout = false })
     if (showBackup) BackupDialog(
-        backupState,
+        backupState, records = state.medicines.size, photoReferences = state.medicines.sumOf { it.photos().size },
         dismiss = { if (!backupState.busy) { backupViewModel.discard(); showBackup = false } },
-        export = { createBackup.launch("pharmacy-backup-${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}.zip") },
-        choose = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
-        restore = backupViewModel::restore, cancel = backupViewModel::discard
+        export = {
+            runCatching { createBackup.launch("pharmacy-backup-${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}.zip") }
+                .onFailure { viewModel.report("无法打开文件选择器，请稍后重试") }
+        },
+        choose = {
+            runCatching { openBackup.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }
+                .onFailure { viewModel.report("无法打开文件选择器，请稍后重试") }
+        },
+        restore = backupViewModel::restore, cancel = backupViewModel::discard,
+        viewCabinet = {
+            backupViewModel.discard(); showBackup = false
+            viewModel.search(""); viewModel.filter(CabinetFilter.ALL); viewModel.filterTag(null)
+        }
     )
     if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
