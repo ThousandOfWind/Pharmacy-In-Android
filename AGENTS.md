@@ -6,7 +6,7 @@
 
 - 用户请求开发或“提交”时，默认继续完成上述流程，不因本地 commit 完成而停止，也不逐步等待用户催促。
 - 用户明确要求仅本地、暂不推送、仅 review 或暂不合并时，以该次限制为准；遇到授权、权限或审查阻塞时停止并报告，不推定更广泛的业务权限。
-- 用户已授权本仓库流程中的独立 review agent 审查；后续可直接调用一个合适的只读 reviewer，无需反复请求同一授权。此授权仅限审查，不包括让子 agent 实现、提交、推送或合并。
+- 用户已授权本仓库流程中的独立 review。默认使用 GitHub 原生 Copilot Code Review，无需本机 Pi host；后续直接请求审查，不反复询问同一授权。若采用本地 reviewer，仅允许只读审查，不包括让子 agent 实现、提交、推送或合并。
 
 ## 1. 从最新 main 创建新 worktree
 
@@ -34,8 +34,13 @@
 
 - 提交本次改动，推送任务分支，通过 PR 合并到 `main`；不直接推送 main。
 - PR 描述包含设计/改动摘要、验证结果、风险和未验证项。
-- **必须完成 PR code review。自检或 CI 通过不能代替 PR review。** 可由人工或明确授权的 review agent 审查；安装了工具不等于授权委派。
-- review 必须对应最终 PR head commit；记录审查 agent/人工来源、被审查提交、结论和问题处理结果，并将审查摘要留在 PR 中。agent 审查不可冒充人工审批；仓库要求的正式审批仍须满足。
+- **必须完成独立 PR code review。自检或 CI 通过不能代替 PR review。** 默认使用 GitHub 原生 Copilot Code Review：
+  ```bash
+  gh pr edit <PR编号> --add-reviewer "@copilot"
+  ```
+- 若创建 PR 时已自动请求 Copilot，避免重复请求；检查现有审查对应的提交。修复或更新 PR 后，若最新提交尚未被审查，重新请求 Copilot。
+- review 必须对应最终 PR head commit；通过 PR review 的 `commit.oid` 与 `headRefOid` 核对，不把旧提交的审查当作当前批准。记录审查来源、被审查提交、结论和问题处理结果，并将审查摘要留在 PR 中。
+- Copilot 的 `COMMENTED` 审查和“推荐批准”不是正式 `APPROVED`；仓库要求的人工审批仍须满足。Copilot 不可用或权限不足时报告阻塞，不假装已审查，也不绕过保护规则。
 - 对 review 问题逐项处理，必要时补充验证并重新 review。
 - 只有在相关检查通过、审查无未解决的阻塞问题、且满足仓库保护规则后，才能合并。
 - 不使用管理员绕过、不强推、不跳过必需的审查或检查。遇到认证、权限或分支保护阻塞时明确报告并停止。
