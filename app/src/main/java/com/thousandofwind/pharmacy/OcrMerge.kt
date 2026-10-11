@@ -8,6 +8,23 @@ fun appendOcrText(previous: String, current: String): String? {
     return combined.takeIf { it.length <= MAX_OCR_TEXT }
 }
 
+/** Additional photos fill missing suggestions. Conflicts retain the earlier suggestion with a warning. */
+fun mergePhotoCandidates(previous: OcrCandidates, incoming: OcrCandidates): OcrCandidates {
+    val warnings = (previous.warnings + incoming.warnings).toMutableList()
+    fun merge(label: String, old: String, next: String): String {
+        if (old.isNotBlank() && next.isNotBlank() && old != next) warnings += "$label在不同照片中不一致，保留先前候选，请对照当前包装核对"
+        return old.ifBlank { next }
+    }
+    val name = merge("药名", previous.name, incoming.name)
+    val expiry = merge("有效期", previous.expiry, incoming.expiry)
+    val efficacy = merge("适应症", previous.efficacy, incoming.efficacy)
+    val info = MedicineInformationField.entries.fold(previous.information) { value, field ->
+        value.withValue(field, merge(field.label, previous.information[field], incoming.information[field]))
+    }
+    val names = (previous.nameOptions + incoming.nameOptions + listOf(previous.name, incoming.name)).filter(String::isNotBlank).distinct().filterNot { it == name }
+    return OcrCandidates(name, expiry, efficacy, info, names, warnings.distinct())
+}
+
 /** Region retries are field-specific. Empty/unusable results never erase earlier candidates. */
 fun mergeRegionCandidates(previous: OcrCandidates, incoming: OcrCandidates, target: String): OcrCandidates {
     val merged = when (target) {

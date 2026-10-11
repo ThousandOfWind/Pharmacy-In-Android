@@ -77,5 +77,10 @@ class OcrRulesTest {
         assertEquals(merged, mergeRegionCandidates(merged, OcrCandidates(), OCR_TARGET_NAME))
         assertNull(appendOcrText("x".repeat(MAX_OCR_TEXT), "new"))
         assertEquals("old\n\nnew", appendOcrText("old", "new"))
+        val extraPhoto = mergePhotoCandidates(c, OcrCandidates(expiry = "2029-06", information = MedicineInformation(manufacturer = "示例厂家")))
+        assertEquals("候选名", extraPhoto.name)
+        assertEquals(c.information.usageAndDosage, extraPhoto.information.usageAndDosage)
+        assertEquals("示例厂家", extraPhoto.information.manufacturer)
+        assertTrue(extraPhoto.warnings.any { it.contains("有效期") })
     }
 }

@@ -308,7 +308,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 val combined = appendOcrText(session.value.draft.rawText, text)
                 if (combined == null) { report("累计识别原文超过 50000 字符，照片已保留；本次不生成候选，避免丢失核对来源。"); return@launch }
                 val candidates = extractCandidates(text)
-                updateDraft { copy(rawText = combined, candidates = candidates, reviewed = false) }
+                updateDraft { copy(rawText = combined, candidates = mergePhotoCandidates(this.candidates, candidates), reviewed = false) }
                 report("识别完成，请对照照片核对；候选内容不会自动覆盖填写")
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
