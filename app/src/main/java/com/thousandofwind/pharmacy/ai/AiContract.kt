@@ -89,7 +89,7 @@ class AssistantEngine {
             messages += AiMessage.Assistant(response.text, response.calls)
             for (call in response.calls) {
                 currentCoroutineContext().ensureActive()
-                require(call.id.isNotBlank() && seenIds.add(call.id)) { "重复或缺失的工具 ID" }
+                require(call.id.isNotBlank() && call.id.length <= 200 && seenIds.add(call.id)) { "重复或缺失的工具 ID" }
                 onStatus("正在查询本地药箱…")
                 val result = if (cabinet == null) ToolResult("{\"error\":\"Cabinet access is disabled\"}") else cabinet.execute(call)
                 require(result.text.length <= 16000)

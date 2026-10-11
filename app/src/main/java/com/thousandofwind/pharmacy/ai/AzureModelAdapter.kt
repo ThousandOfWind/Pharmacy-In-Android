@@ -16,7 +16,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.*
 
 /** Azure protocol only; does not know Room, medicine fields, UI or session persistence. */
-class AzureModelAdapter(config: AzureConnection, key: String, engine: HttpClientEngine = OkHttp.create()) : ModelAdapter {
+class AzureModelAdapter(config: AzureConnection, key: String, engine: HttpClientEngine = OkHttp.create { config { retryOnConnectionFailure(false) } }) : ModelAdapter {
     init { require(connectionError(config) == null); require(key.isNotBlank()) }
     private val deployment = config.deployment
     private val v1 = config.api == AzureApi.V1
@@ -67,7 +67,7 @@ class AzureModelAdapter(config: AzureConnection, key: String, engine: HttpClient
             choice.delta?.toolCalls.orEmpty().forEach { call ->
                 require(call.index in 0..3)
                 val pending = calls.getOrPut(call.index) { Partial() }
-                call.id?.let { pending.id = it.id }
+                call.id?.let { require(it.id.length in 1..200); pending.id = it.id }
                 call.function?.nameOrNull?.let { pending.name.append(it) }
                 call.function?.argumentsOrNull?.let { pending.args.append(it) }
                 require(pending.name.length <= 100 && pending.args.length <= 4096)
