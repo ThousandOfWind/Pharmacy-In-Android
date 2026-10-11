@@ -155,12 +155,36 @@ export function releaseReservation(root, owner) {
 }
 
 const reservationRoot = () => path.join(os.tmpdir(), 'pharmacy-local-e2e-reservations');
+function launchOwner(c) {
+  const owner = JSON.parse(fs.readFileSync(path.join(c.state, 'emulator-started.json'), 'utf8'));
+  if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator launch ownership mismatch.');
+  return owner;
+}
+
+function launchIdentityProbe(c, owner, requireAlive = true) {
+  const matching = `$p.Name -eq 'emulator.exe' -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '${owner.creationTime}' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)'`;
+  const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if (-not $p) { ${requireAlive ? 'exit 1' : "'exited'; exit 0"} }; if (-not (${matching})) { exit 1 }; 'alive'`;
+  return execute('powershell.exe', ['-NoProfile', '-Command', probe], c.env, { quiet: true }).trim();
+}
+
+async function confirmLaunchExit(c, owner) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const exited = launchIdentityProbe(c, owner, false) === 'exited';
+    const connected = inventory(c).split(/\r?\n/).some(line => line.startsWith(`${c.serial}\t`));
+    if (exited && !connected) { await assertPortsFree(c.config.port); return; }
+    await sleep(500);
+  }
+  throw new Error('Owned emulator exit is not confirmed; reservation retained. Do not start another task on this AVD/port.');
+}
+
 function reservedOwner(c) {
   const file = path.join(c.state, 'device-reservation.json');
   if (!fs.existsSync(file)) throw new Error('Run start for this task first; never attach to another task\'s running emulator.');
   const owner = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (owner.repo !== c.repo || owner.avdName !== c.config.avdName || owner.port !== c.config.port) throw new Error('Local task reservation does not match current configuration.');
   verifyReservation(reservationRoot(), owner);
+  launchIdentityProbe(c, launchOwner(c));
   return owner;
 }
 
@@ -275,6 +299,7 @@ async function main() {
         // Recheck PID, creation time and launch arguments immediately before terminating only this owned process tree.
         terminateOwnedProcess: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} & taskkill.exe /PID ${owner.pid} /T /F; exit $LASTEXITCODE`], c.env, { quiet: true }),
       });
+      await confirmLaunchExit(c, owner);
       fs.unlinkSync(ownership);
       releaseReservation(reservationRoot(), reservation);
       fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
@@ -306,13 +331,13 @@ async function main() {
         { cwd: c.repo, timeout: 600000, log: path.join(dir, 'build.log') });
       const apk = path.join(c.repo, 'app/build/outputs/apk/debug/app-debug.apk');
       result.apkSha256 = crypto.createHash('sha256').update(fs.readFileSync(apk)).digest('hex');
-      deviceReady(c); c.adbCall(['install', '-r', apk], { timeout: 120000, log: path.join(dir, 'install.log') });
+      reservedOwner(c); deviceReady(c); c.adbCall(['install', '-r', apk], { timeout: 120000, log: path.join(dir, 'install.log') });
       const installed = c.adbCall(['shell', 'pm', 'path', APP], { quiet: true }).split(/\r?\n/).find(s => s.startsWith('package:') && s.endsWith('/base.apk'))?.slice(8);
       if (!installed) throw new Error('Installed APK not found.');
       const hash = c.adbCall(['shell', 'sha256sum', installed], { quiet: true }).trim().split(/\s+/)[0];
       if (hash !== result.apkSha256) throw new Error('Installed APK hash differs from the current build.');
       // Recheck both the resolved device identity and this invocation's explicit consent just before execution.
-      deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
+      reservedOwner(c); deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
       c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--env', 'PHARMACY_ALLOW_TEST_DATA_RESET=true', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
         '--test-output-dir', path.join(dir, 'maestro'), flow], { timeout: 300000, log: path.join(dir, 'maestro.log') });
       if (!fs.existsSync(path.join(dir, 'report.xml'))) throw new Error('Maestro succeeded without the expected JUnit report.');
