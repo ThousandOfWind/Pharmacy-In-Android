@@ -18,9 +18,16 @@ import java.time.ZoneOffset
 @Composable
 fun EditorScreen(
     state: UiState, update: (MedicineDraft.() -> MedicineDraft) -> Unit,
-    camera: () -> Unit, picker: () -> Unit
+    camera: () -> Unit, picker: () -> Unit,
+    scanRegion: (String, OcrRegion, String, (Boolean) -> Unit) -> Unit
 ) {
     val draft = state.session.draft
+    var cropPhoto by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
+    cropPhoto?.let { photo ->
+        OcrRegionDialog(photo, state.scanning || state.busy, { cropPhoto = null }) { region, target ->
+            scanRegion(photo, region, target) { success -> if (success) cropPhoto = null }
+        }
+    }
     var identity by rememberSaveable(draft.id) { mutableStateOf(false) }
     var leaflet by rememberSaveable(draft.id) { mutableStateOf(false) }
     var notes by rememberSaveable(draft.id) { mutableStateOf(false) }
@@ -35,7 +42,6 @@ fun EditorScreen(
             if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && medicineInformationFieldError(it, draft.information[it]) != null }) leaflet = true
         }
     }
-    var raw by rememberSaveable(draft.id) { mutableStateOf(false) }
     var datePicker by rememberSaveable(draft.id) { mutableStateOf(false) }
     if (datePicker) {
         val initial = expiryDay(draft.expiry)?.takeIf { it.year in 1900..2100 }
@@ -59,30 +65,12 @@ fun EditorScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("先记下名字，其他慢慢补充。", style = PaperHeading, color = PaperPalette.Muted)
-        if (draft.photos.isNotEmpty()) PhotoStrip(draft.photos)
+        if (draft.photos.isNotEmpty()) PhotoStrip(draft.photos, enabled = !state.scanning && !state.busy, onCrop = { cropPhoto = it })
         if (state.scanning) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("正在本地识别，已有填写不会被覆盖…", style = MaterialTheme.typography.bodySmall)
         }
-        if (draft.rawText.isNotBlank()) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("识别候选 · 待你核对", style = MaterialTheme.typography.titleSmall)
-                    Text("只提取带明确标签的信息，不猜药名或日期。采用候选不会覆盖已有填写。", style = MaterialTheme.typography.bodySmall)
-                    CandidateRow("药名", draft.candidates.name, draft.name.isBlank() && !state.busy) {
-                        update { copy(name = candidates.name, reviewed = false) }
-                    }
-                    CandidateRow("有效期至", draft.candidates.expiry, draft.expiry.isBlank() && !state.busy) {
-                        update { copy(expiry = candidates.expiry, reviewed = false) }
-                    }
-                    CandidateRow("包装功效", draft.candidates.efficacy, draft.efficacy.isBlank() && !state.busy) {
-                        update { copy(efficacy = candidates.efficacy) }; optional = true; leaflet = true
-                    }
-                    TextButton(onClick = { raw = !raw }) { Text(if (raw) "收起识别原文" else "查看识别原文") }
-                    if (raw) Text(draft.rawText, style = MaterialTheme.typography.bodySmall)
-                }
-            }
-        }
+        if (draft.rawText.isNotBlank()) OcrCandidatesPanel(draft, state.busy || state.scanning, update)
         PaperField(
             value = draft.name, onValueChange = { value -> update { copy(name = value, reviewed = false) } },
             label = "药品名称（必填）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
@@ -136,20 +124,10 @@ fun EditorScreen(
         }
         if (draft.rawText.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = draft.reviewed, onCheckedChange = { value -> update { copy(reviewed = value) } }, enabled = !state.busy)
-            Text("我已对照包装核对名称和有效期", style = MaterialTheme.typography.bodyMedium)
+            Text("我已对照照片核对名称、有效期及已采用的资料", style = MaterialTheme.typography.bodyMedium)
         }
         Text("同名但有效期不同的药品，请分开添加为库存记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(8.dp))
-    }
-}
-
-@Composable
-private fun CandidateRow(label: String, value: String, canApply: Boolean, apply: () -> Unit) {
-    if (value.isBlank()) {
-        Text("$label：未提取到，请手动填写或查看原文", style = MaterialTheme.typography.bodySmall)
-    } else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("$label：$value", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = apply, enabled = canApply) { Text(if (canApply) "采用" else "保留填写") }
     }
 }
 

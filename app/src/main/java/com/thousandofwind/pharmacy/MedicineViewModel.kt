@@ -2,6 +2,7 @@ package com.thousandofwind.pharmacy
 
 import android.app.Application
 import android.net.Uri
+import android.graphics.Bitmap
 import android.os.Bundle
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -53,6 +54,11 @@ data class MedicineDraft(
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
+        putStringArrayList("candidateNames", ArrayList(candidates.nameOptions))
+        putStringArrayList("candidateWarnings", ArrayList(candidates.warnings))
+        putBundle("candidateInformation", Bundle().apply {
+            MedicineInformationField.entries.forEach { putString(it.column, candidates.information[it]) }
+        })
         putStringArrayList("tags", ArrayList(tags)); putString("tagInput", tagInput)
         putBundle("information", Bundle().apply {
             MedicineInformationField.entries.forEach { field -> putString(field.column, information[field]) }
@@ -66,7 +72,10 @@ data class MedicineDraft(
                 it.getString("quantity").orEmpty(), it.getString("unit").orEmpty(),
                 it.getString("efficacy").orEmpty(), it.getString("notes").orEmpty(),
                 it.getStringArrayList("photos")?.toList().orEmpty(), it.getString("rawText").orEmpty(),
-                OcrCandidates(it.getString("candidateName").orEmpty(), it.getString("candidateExpiry").orEmpty(), it.getString("candidateEfficacy").orEmpty()),
+                OcrCandidates(it.getString("candidateName").orEmpty(), it.getString("candidateExpiry").orEmpty(), it.getString("candidateEfficacy").orEmpty(),
+                    MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
+                        info.withValue(field, it.getBundle("candidateInformation")?.getString(field.column).orEmpty())
+                    }, it.getStringArrayList("candidateNames")?.toList().orEmpty(), it.getStringArrayList("candidateWarnings")?.toList().orEmpty()),
                 it.getBoolean("reviewed"),
                 normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty(),
                 MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
@@ -311,10 +320,40 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         }
     }
 
-    private suspend fun recognize(uri: Uri): String = suspendCancellableCoroutine { continuation ->
+    fun scanRegion(photo: String, region: OcrRegion, target: String, done: (Boolean) -> Unit) {
+        if (scanning.value || busy.value || session.value.screen != Screen.EDITOR || photo !in session.value.draft.photos || !region.valid()) return
+        scanning.value = true
+        val generation = ++scanGeneration
+        viewModelScope.launch {
+            try {
+                val cropped = withContext(Dispatchers.IO) {
+                    val original = loadOcrBitmap(photo)
+                    val left = (region.left * original.width).toInt().coerceIn(0, original.width - 1)
+                    val top = (region.top * original.height).toInt().coerceIn(0, original.height - 1)
+                    val right = (region.right * original.width).toInt().coerceIn(left + 1, original.width)
+                    val bottom = (region.bottom * original.height).toInt().coerceIn(top + 1, original.height)
+                    Bitmap.createBitmap(original, left, top, right - left, bottom - top)
+                }
+                val text = recognize(InputImage.fromBitmap(cropped, 0))
+                if (generation != scanGeneration) return@launch
+                updateDraft { copy(
+                    rawText = listOf(rawText, text).filter(String::isNotBlank).joinToString("\n\n").take(50000),
+                    candidates = regionCandidates(text, target), reviewed = false
+                ) }
+                report(if (text.isBlank()) "框选中未识别到文字，请重画或补拍" else "框选识别完成，请对照原图核对后采用")
+                done(text.isNotBlank())
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (generation == scanGeneration) { report("框选识别失败，请重试或补拍"); done(false) }
+            } finally { if (generation == scanGeneration) scanning.value = false }
+        }
+    }
+
+    private suspend fun recognize(uri: Uri): String = recognize(InputImage.fromFilePath(getApplication(), uri))
+
+    private suspend fun recognize(image: InputImage): String = suspendCancellableCoroutine { continuation ->
         val recognizer = TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
         try {
-            val image = InputImage.fromFilePath(getApplication(), uri)
             recognizer.process(image)
                 .addOnSuccessListener { if (continuation.isActive) continuation.resume(it.text) }
                 .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
