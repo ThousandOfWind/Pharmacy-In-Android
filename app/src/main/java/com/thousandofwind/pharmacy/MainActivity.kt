@@ -159,7 +159,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 40 })
                 }, label = "page transition"
             ) { page ->
-                screenState.SaveableStateProvider(page.session.screen) {
+                screenState.SaveableStateProvider(if (page.session.screen == Screen.DETAIL) "detail-${page.session.selectedId}" else page.session.screen) {
                     when (page.session.screen) {
                         Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
                         Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto)
