@@ -35,8 +35,6 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
     val versionName: String = installed.versionName ?: "未知"
     val versionCode: Long = PackageInfoCompat.getLongVersionCode(installed)
 
-    fun ensureChecked() { if (!mutable.value.downloading && mutable.value.readyApk == null) check() }
-
     fun check() {
         if (mutable.value.checking || mutable.value.downloading) return
         mutable.value = AppUpdateState(checking = true, message = "正在检查 GitHub 最新发布…")

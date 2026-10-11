@@ -18,7 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -27,10 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 
 @Composable
-fun UpdateDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
+fun AboutDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    LaunchedEffect(viewModel) { viewModel.ensureChecked() }
 
     fun install() {
         val apk = viewModel.state.value.readyApk
@@ -55,10 +53,22 @@ fun UpdateDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("应用更新") },
+        title = { Text("关于") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("我的药箱", style = MaterialTheme.typography.titleLarge)
                 Text("当前版本 ${viewModel.versionName}（${viewModel.versionCode}）")
+                Text("记录家中药品、有效期、余量与位置。药箱数据保存在本地，日常管理可离线使用。")
+                Text("OCR 帮助录入，仍需核对；AI 助手需自行配置并主动使用。不提供诊断或用药建议。",
+                    style = MaterialTheme.typography.bodySmall)
+                Text("源码可见，仅限非商业使用。", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$UPDATE_REPOSITORY")))
+                    }.onFailure { viewModel.report("无法打开项目主页，请使用浏览器访问 GitHub / $UPDATE_REPOSITORY。") }
+                }) { Text("项目主页") }
+                InkDivider()
+                Text("应用更新", style = MaterialTheme.typography.titleMedium)
                 Text(state.message)
                 if (state.checking) LinearProgressIndicator(Modifier.fillMaxWidth())
                 if (state.downloading) {
@@ -69,7 +79,7 @@ fun UpdateDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
                     Text("新版本 ${update.versionName} · ${update.size / (1024 * 1024)} MB")
                     if (update.notes.isNotBlank()) Text(update.notes, style = MaterialTheme.typography.bodySmall)
                 }
-                Text("来源：GitHub / $UPDATE_REPOSITORY\n仅手动更新；首次安装可能需要允许本应用安装未知应用。", style = MaterialTheme.typography.bodySmall)
+                Text("更新来源：GitHub / $UPDATE_REPOSITORY\n仅手动更新；首次安装可能需要允许本应用安装未知应用。", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
@@ -80,7 +90,7 @@ fun UpdateDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
                 }.onFailure { viewModel.report("无法打开安装授权设置，请在系统设置中允许本应用安装未知应用。") }
             }) { Text("安装更新") }
             else if (state.update != null) TextButton(onClick = viewModel::download, enabled = !state.downloading) { Text("下载更新") }
-            else TextButton(onClick = viewModel::check, enabled = !state.checking) { Text("重新检查") }
+            else TextButton(onClick = viewModel::check, enabled = !state.checking) { Text("检查更新") }
         },
         dismissButton = {
             Row {

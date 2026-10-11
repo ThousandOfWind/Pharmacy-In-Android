@@ -16,7 +16,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 // Contents are staged privately and never put in SavedStateHandle or logs.
-data class BackupUiState(val busy: Boolean = false, val preview: BackupPreview? = null, val message: String? = null)
+data class BackupUiState(
+    val busy: Boolean = false, val preview: BackupPreview? = null, val message: String? = null,
+    val exported: BackupExportResult? = null, val restored: BackupRestoreResult? = null
+)
 
 class BackupViewModel(application: Application) : AndroidViewModel(application) {
     private val store = BackupStore(application)
@@ -31,7 +34,7 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             try {
                 val result = store.export(uri)
-                mutable.value = BackupUiState(message = "备份已保存：${result.first} 条记录、${result.second} 张照片。")
+                mutable.value = BackupUiState(exported = result)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 mutable.value = BackupUiState(message = "备份未完成：${error.message ?: "请重试"}。原药箱未改动；若已产生目标文件，请删除不完整文件。")
@@ -65,8 +68,8 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 pending = null // Ownership transfers to this coroutine before the first suspension.
-                val count = store.restore(staged)
-                mutable.value = BackupUiState(message = "恢复完成，新增 $count 条记录；现有记录已保留。")
+                val result = store.restore(staged)
+                mutable.value = BackupUiState(restored = result)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 mutable.value = BackupUiState(message = "恢复失败：${error.message ?: "请重试"}。现有药箱未改动。")

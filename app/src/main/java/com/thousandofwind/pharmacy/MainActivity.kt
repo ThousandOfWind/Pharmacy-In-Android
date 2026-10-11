@@ -66,7 +66,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     val snackbar = remember { SnackbarHostState() }
     val screenState = rememberSaveableStateHolder()
     var showAdd by rememberSaveable { mutableStateOf(false) }
-    var showUpdate by rememberSaveable { mutableStateOf(false) }
+    var showAbout by rememberSaveable { mutableStateOf(false) }
     var showAi by rememberSaveable { mutableStateOf(false) }
     var showMore by rememberSaveable { mutableStateOf(false) }
     var showBackup by rememberSaveable { mutableStateOf(false) }
@@ -142,17 +142,17 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                     }, style = MaterialTheme.typography.titleLarge)
                 },
                 navigationIcon = {
-                    if (state.session.screen != Screen.CABINET) TextButton(onClick = ::back, enabled = !state.busy) { InkIcon(InkSymbol.BACK); Text("返回") }
+                    if (state.session.screen != Screen.CABINET) InkIconButton(InkSymbol.BACK, "返回", ::back, enabled = !state.busy)
                 },
                 actions = {
                     if (state.session.screen == Screen.CABINET) {
                         Box {
-                            TextButton(onClick = { showMore = true }) { InkIcon(InkSymbol.MORE); Text("更多") }
+                            InkIconButton(InkSymbol.MORE, "更多", { showMore = true })
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
                                 DropdownMenuItem(text = { Text("AI 助手") }, onClick = { showMore = false; showAi = true })
-                                DropdownMenuItem(text = { Text("检查更新") }, onClick = { showMore = false; showUpdate = true })
-                                DropdownMenuItem(text = { Text("备份与恢复") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
+                                DropdownMenuItem(text = { Text("备份与换机") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
                                     onClick = { showMore = false; showBackup = true })
+                                DropdownMenuItem(text = { Text("关于") }, onClick = { showMore = false; showAbout = true })
                             }
                         }
                     } else if (state.session.screen == Screen.DETAIL) {
@@ -198,7 +198,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                     else -> page.session.screen
                 }) {
                     when (page.session.screen) {
-                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup)
+                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup,
+                            importBackup = { showBackup = true }, canImport = !page.busy && !page.scanning)
                         Screen.GROUP -> page.selectedGroup?.let { group ->
                             GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
                         } ?: Column(Modifier.padding(24.dp)) {
@@ -226,13 +227,23 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     if (showGroupLink) state.selected?.let { item ->
         GroupLinkDialog(item, state.medicines, state.busy, { showGroupLink = false }) { target, name -> viewModel.linkGroup(item, target, name) }
     }
-    if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
+    if (showAbout) AboutDialog(updateViewModel, onDismiss = { showAbout = false })
     if (showBackup) BackupDialog(
-        backupState,
+        backupState, records = state.medicines.size, photoReferences = state.medicines.sumOf { it.photos().size },
         dismiss = { if (!backupState.busy) { backupViewModel.discard(); showBackup = false } },
-        export = { createBackup.launch("pharmacy-backup-${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}.zip") },
-        choose = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
-        restore = backupViewModel::restore, cancel = backupViewModel::discard
+        export = {
+            runCatching { createBackup.launch("pharmacy-backup-${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}.zip") }
+                .onFailure { viewModel.report("无法打开文件选择器，请稍后重试") }
+        },
+        choose = {
+            runCatching { openBackup.launch(arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream")) }
+                .onFailure { viewModel.report("无法打开文件选择器，请稍后重试") }
+        },
+        restore = backupViewModel::restore, cancel = backupViewModel::discard,
+        viewCabinet = {
+            backupViewModel.discard(); showBackup = false
+            viewModel.search(""); viewModel.filter(CabinetFilter.ALL); viewModel.filterTag(null)
+        }
     )
     if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {

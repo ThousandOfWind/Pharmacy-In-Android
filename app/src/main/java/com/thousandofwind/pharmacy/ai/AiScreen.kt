@@ -34,7 +34,10 @@ fun AiScreen(viewModel: AiViewModel, dismiss: () -> Unit, openMedicine: (Long) -
     )) {
         Scaffold(modifier = Modifier.fillMaxSize().imePadding(), topBar = {
             TopAppBar(title = { Text("药箱 AI 助手", style = PaperHeading) },
-                navigationIcon = { TextButton(onClick = { if (state.busy) viewModel.stop() else back() }) { Text(if (state.busy) "停止" else "返回") } },
+                navigationIcon = {
+                    InkIconButton(if (state.busy) InkSymbol.STOP else InkSymbol.BACK, if (state.busy) "停止生成" else "返回",
+                        { if (state.busy) viewModel.stop() else back() })
+                },
                 actions = { TextButton(onClick = { settings = true }, enabled = !state.busy) { Text("连接设置") } })
         }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
