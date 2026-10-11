@@ -67,7 +67,9 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
                     val folder = File(getApplication<Application>().cacheDir, "updates")
                     check(folder.isDirectory || folder.mkdirs())
                     // Do not remove photos, database files, or files outside the update cache.
-                    folder.listFiles()?.filter { it.name.endsWith(".part") }?.forEach { it.delete() }
+                    folder.listFiles()?.filter { it.name.endsWith(".part") || it.name.endsWith(".apk") }?.forEach {
+                        check(it.delete()) { "无法清理旧更新缓存" }
+                    }
                     val temp = File(folder, "${update.tag}.part")
                     partial = temp
                     client.download(update, temp) { percent -> mutable.update { it.copy(progress = percent) } }
@@ -93,7 +95,9 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
     private fun verifyPackage(file: File, update: ReleaseUpdate) {
         val app = getApplication<Application>()
         val pm = app.packageManager
-        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+        // Some Android 13/OEM archive parsers omit signingInfo; request legacy certificates too.
+        val flags = if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
+            else PackageManager.GET_SIGNATURES
         val candidate = pm.getPackageArchiveInfo(file.absolutePath, flags)
             ?: throw UpdateRejected("下载的文件不是有效 APK，未安装。")
         if (candidate.packageName != app.packageName || PackageInfoCompat.getLongVersionCode(candidate) != update.versionCode ||
@@ -107,7 +111,9 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
 
     @Suppress("DEPRECATION")
     private fun signers(info: PackageInfo): Set<String> {
-        val signatures = if (Build.VERSION.SDK_INT >= 28) info.signingInfo?.apkContentsSigners else info.signatures
+        val signatures = if (Build.VERSION.SDK_INT >= 28)
+            info.signingInfo?.apkContentsSigners?.takeIf { it.isNotEmpty() } ?: info.signatures
+            else info.signatures
         return signatures?.map { it.toByteArray().hex() }?.toSet().orEmpty()
     }
 }

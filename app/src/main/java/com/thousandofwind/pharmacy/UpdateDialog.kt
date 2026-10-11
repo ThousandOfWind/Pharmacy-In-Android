@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -82,7 +83,11 @@ fun UpdateDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
             else TextButton(onClick = viewModel::check, enabled = !state.checking) { Text("重新检查") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            Row {
+                if (state.update != null) TextButton(onClick = viewModel::check,
+                    enabled = !state.checking && !state.downloading) { Text("重新检查") }
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
         }
     )
 }
