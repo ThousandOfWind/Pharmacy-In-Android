@@ -49,6 +49,13 @@ fun DetailScreen(
             if (photo == null) Image(painterResource(R.drawable.ink_package), null, Modifier.width(72.dp).height(88.dp))
             else AsyncImage(photo, "${item.name}的包装照片", modifier = Modifier.size(78.dp).clip(MaterialTheme.shapes.small).clickable { photos = true }, contentScale = ContentScale.Crop)
         }
+        val tags = item.tags()
+        if (tags.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                MedicineTags(tags, limit = tags.size)
+                Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+            }
+        }
         Spacer(Modifier.height(8.dp))
         ExpiryLabel(item.expiryDate)
         if (expiryStatus(item.expiryDate) == ExpiryStatus.EXPIRED) Text("该记录已过期，请核对包装并妥善处理。", color = PaperPalette.Error)
@@ -70,8 +77,6 @@ fun DetailScreen(
                 it.group == MedicineInformationGroup.IDENTITY && it != MedicineInformationField.STORAGE_LOCATION && item.information[it].isNotBlank()
             }
             if (!hasIdentity) Text("尚未补充药品资料。")
-            if (item.tags().isNotEmpty()) MedicineTags(item.tags())
-            Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
         }
         PaperDisclosure("包装照片", photos, { photos = !photos }, subtitle = if (item.photos().isEmpty()) "尚未添加" else "${item.photos().size} 张") {
             if (item.photos().isNotEmpty()) PhotoStrip(item.photos())

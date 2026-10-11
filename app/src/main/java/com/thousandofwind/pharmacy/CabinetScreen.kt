@@ -174,6 +174,8 @@ fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, sh
                         Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.bodyMedium)
                         if (item.information.storageLocation.isNotBlank()) Text(item.information.storageLocation, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
                     } else if (item.remainingQuantity == 0) Text("已用完", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
+                    val tags = item.tags()
+                    if (tags.isNotEmpty()) MedicineTags(tags, limit = 3)
                 }
                 InkIcon(InkSymbol.NEXT, modifier = Modifier.size(18.dp), color = PaperPalette.Frame)
             }
