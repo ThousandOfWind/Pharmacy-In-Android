@@ -34,6 +34,13 @@ class OcrRulesTest {
         assertTrue(c.warnings.isNotEmpty())
         assertEquals("", extractCandidates("【功能主治】" + "字".repeat(5001)).efficacy)
         assertEquals("", regionCandidates("字".repeat(5001), OCR_TARGET_EFFICACY).efficacy)
+        val inline = extractCandidates("【注意事项】请咨询医师。【贮藏】阴凉处保存")
+        assertEquals("请咨询医师。", inline.information.precautions)
+        assertEquals("阴凉处保存", inline.information.storageConditions)
+        val mixedWrappers = extractCandidates("[禁忌]对本品过敏者禁用。[有效期至]2028-06【注意事项】请核对包装")
+        assertEquals("对本品过敏者禁用。", mixedWrappers.information.contraindications)
+        assertEquals("2028-06", mixedWrappers.expiry)
+        assertEquals("请核对包装", mixedWrappers.information.precautions)
     }
 
     @Test fun unlabelledNamesAreOptionsAndConflictingDatesAreNotSelected() {

@@ -44,7 +44,12 @@ private fun sections(text: String): List<Section> {
         active?.let { output += Section(it, lines.joinToString("\n").trim()) }
         active = null; singleValue = false; lines.clear()
     }
-    text.lines().forEach { original ->
+    val heading = Regex("[【\\[][^】\\]]+[】\\]]")
+    val sourceLines = text.lines().flatMap { original ->
+        val starts = (listOf(0) + heading.findAll(original).map { it.range.first }.toList() + original.length).distinct().sorted()
+        starts.zipWithNext { start, end -> original.substring(start, end) }
+    }
+    sourceLines.forEach { original ->
         val value = original.trim()
         val bracket = Regex("^[【\\[]([^】\\]]+)[】\\]]\\s*[:：]?\\s*(.*)$").find(value)
         val colon = Regex("^([^:：]{1,20})[:：]\\s*(.*)$").find(value)

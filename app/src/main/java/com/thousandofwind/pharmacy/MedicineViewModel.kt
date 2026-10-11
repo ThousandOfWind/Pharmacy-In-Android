@@ -217,7 +217,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         val error = formError(draft.name, draft.expiry, draft.quantity, draft.unit)
             ?: medicineTagsError(tags)
             ?: medicineInformationError(draft.information)
-            ?: if (draft.rawText.isNotBlank() && !draft.reviewed) "请先对照包装核对名称和有效期" else null
+            ?: if (draft.rawText.isNotBlank() && !draft.reviewed) "请先对照照片核对名称、有效期及已采用的资料" else null
         if (error != null) { change { copy(error = error) }; return }
         busy.value = true
         viewModelScope.launch {
