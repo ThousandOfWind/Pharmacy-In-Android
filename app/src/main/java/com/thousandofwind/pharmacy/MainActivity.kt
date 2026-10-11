@@ -31,6 +31,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.thousandofwind.pharmacy.ai.AiScreen
+import com.thousandofwind.pharmacy.ai.AiViewModel
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MedicineViewModel> {
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val updateViewModel by viewModels<AppUpdateViewModel>()
+    private val aiViewModel by viewModels<AiViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,20 +51,21 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = true
         }
         setContent {
-            PharmacyTheme { MedicineApp(viewModel, updateViewModel) }
+            PharmacyTheme { MedicineApp(viewModel, updateViewModel, aiViewModel) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel) {
+fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel, aiViewModel: AiViewModel) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     val screenState = rememberSaveableStateHolder()
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var showUpdate by rememberSaveable { mutableStateOf(false) }
+    var showAi by rememberSaveable { mutableStateOf(false) }
     var showMore by rememberSaveable { mutableStateOf(false) }
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf("") }
@@ -122,6 +126,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         Box {
                             TextButton(onClick = { showMore = true }) { InkIcon(InkSymbol.MORE); Text("更多") }
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                                DropdownMenuItem(text = { Text("AI 助手") }, onClick = { showMore = false; showAi = true })
                                 DropdownMenuItem(text = { Text("检查更新") }, onClick = { showMore = false; showUpdate = true })
                             }
                         }
@@ -175,6 +180,10 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
             }
         }
     }
+    if (showAi) AiScreen(aiViewModel, dismiss = { showAi = false }, openMedicine = { id ->
+        state.medicines.firstOrNull { it.id == id }?.let { aiViewModel.stop(); showAi = false; viewModel.open(it) }
+            ?: viewModel.report("这条库存已不在药箱中，请重新查询")
+    })
     if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
     if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
