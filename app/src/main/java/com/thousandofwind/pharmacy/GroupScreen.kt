@@ -52,19 +52,23 @@ fun GroupLinkDialog(item: MedicineEntity, all: List<MedicineEntity>, busy: Boole
     var name by rememberSaveable(item.id) { mutableStateOf(item.information.genericName.ifBlank { item.name }) }
     val options = cabinetGroups(all.filterNot { it.id == item.id || item.groupKey.isNotBlank() && it.groupKey == item.groupKey })
     ModalBottomSheet(onDismissRequest = { if (!busy) dismiss() }) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("关联药品组", style = MaterialTheme.typography.titleLarge)
-            Text("请核对通用名和剂型。这里只关联库存，不合并资料、不表示不同品牌或规格可替代。", style = MaterialTheme.typography.bodySmall)
-            if (item.groupKey.isNotBlank()) Text("当前：${item.groupName}")
-            options.forEach { group ->
+        LazyColumn(Modifier.fillMaxWidth().imePadding().heightIn(max = 620.dp).padding(horizontal = 24.dp), contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text("关联药品组", style = MaterialTheme.typography.titleLarge)
+                Text("请核对通用名和剂型。这里只关联库存，不合并资料、不表示不同品牌或规格可替代。", style = MaterialTheme.typography.bodySmall)
+                if (item.groupKey.isNotBlank()) Text("当前：${item.groupName}")
+            }
+            item {
+                PaperField(name, { name = it }, label = "新药品组名称", modifier = Modifier.fillMaxWidth(), enabled = !busy,
+                    isError = groupNameError(name) != null)
+                PenButton("创建并关联", { link(null, name); dismiss() }, Modifier.fillMaxWidth(), enabled = !busy && groupNameError(name) == null)
+                if (item.groupKey.isNotBlank()) TextButton(onClick = { link(null, null); dismiss() }, enabled = !busy) { Text("移出药品组（保留库存）") }
+            }
+            items(options, key = { it.key }) { group ->
                 TextButton(onClick = { link(group.records.first(), null); dismiss() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
                     Text("关联到 ${group.name}（${group.records.size} 条）")
                 }
             }
-            PaperField(name, { name = it }, label = "新药品组名称", modifier = Modifier.fillMaxWidth(), enabled = !busy,
-                isError = groupNameError(name) != null)
-            PenButton("创建并关联", { link(null, name); dismiss() }, Modifier.fillMaxWidth(), enabled = !busy && groupNameError(name) == null)
-            if (item.groupKey.isNotBlank()) TextButton(onClick = { link(null, null); dismiss() }, enabled = !busy) { Text("移出药品组（保留库存）") }
         }
     }
 }

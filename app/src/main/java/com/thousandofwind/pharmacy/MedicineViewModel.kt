@@ -251,6 +251,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         change {
             copy(screen = when {
                 screen == Screen.EDITOR && draft.id != 0L -> Screen.DETAIL
+                screen == Screen.EDITOR && draft.groupKey.isNotBlank() && groupKey == "group:${draft.groupKey}" -> Screen.GROUP
                 screen == Screen.DETAIL && groupKey.isNotBlank() -> Screen.GROUP
                 else -> Screen.CABINET
             },

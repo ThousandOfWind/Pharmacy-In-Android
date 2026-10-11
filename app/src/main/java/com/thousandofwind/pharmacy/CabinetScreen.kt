@@ -163,7 +163,7 @@ fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, sh
                     Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val summary = listOf(item.information.brandName.takeUnless { it.equals(item.name, ignoreCase = true) }.orEmpty(), item.information.specification).filter(String::isNotBlank).joinToString(" · ")
                     if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    when (expiryStatus(item.expiryDate)) {
+                    if (!showStock) when (expiryStatus(item.expiryDate)) {
                         ExpiryStatus.EXPIRED -> Text("已过期", color = PaperPalette.Error, style = MaterialTheme.typography.bodySmall)
                         ExpiryStatus.SOON -> Text("90 天内到期", color = PaperPalette.Amber, style = MaterialTheme.typography.bodySmall)
                         ExpiryStatus.UNKNOWN -> Text(if (item.expiryDate.isBlank()) "日期待补充" else "有效期需核对", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
