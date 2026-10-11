@@ -25,10 +25,11 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
             if (c.expiry.isNotBlank()) CandidateText("有效期至", c.expiry)
             if (c.nameOptions.isNotEmpty()) {
                 Text("药名候选 · 点击按钮选择", style = MaterialTheme.typography.labelLarge)
-                c.nameOptions.forEach { name ->
+                c.nameOptions.forEachIndexed { index, name ->
+                    CandidateText("药名候选 ${index + 1}", name)
                     OutlinedButton(onClick = { update { if (this.name.isBlank()) copy(name = name, reviewed = false) else this } },
                         enabled = draft.name.isBlank() && !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (draft.name == name) "已选：$name" else "选择药名：$name")
+                        Text(if (draft.name == name) "已选此药名" else "选择此药名")
                     }
                 }
             }

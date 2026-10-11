@@ -82,7 +82,9 @@ class OcrRulesTest {
         assertEquals("2029-02", c.expiry)
         assertEquals("2029-02", extractCandidates("生产日期：\n有效期至：\n20260303\n2029 年 02 月").expiry)
         assertEquals("2029-02", extractCandidates("|产品批号：\n｜生产日期：\nI有效期至：\nAB-2026/03\n20260303\n2029年02月").expiry)
-        assertEquals("", extractCandidates("有效期至：2029年02日").expiry)
+        listOf("2029年02日", "2029年02", "2029年02月28", "2029-02日", "2029-02-28日").forEach { malformed ->
+            assertEquals("", extractCandidates("有效期至：$malformed").expiry)
+        }
         assertEquals("2029-02-28", extractCandidates("有效期至：2029年02月28日").expiry)
         assertEquals("2029-02-28", regionCandidates("20290228", OCR_TARGET_EXPIRY).expiry)
         assertEquals("2029-02", extractCandidates("产品批号：\n生产日期：\n有效期至：\nAB-2026/03\n20260303\n2029年02月").expiry)

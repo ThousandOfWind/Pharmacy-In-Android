@@ -45,8 +45,9 @@ private data class Section(val label: String, val text: String)
 fun parseOcrDate(text: String): String? {
     val value = text.replace(Regex("\\s+"), "")
     val compact = Regex("^(20\\d{2})(\\d{2})(\\d{2})$").matchEntire(value)
-    val separated = Regex("^(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2})日?|月?)$").matchEntire(value)
-    val match = compact ?: separated ?: return null
+    val chinese = Regex("^(20\\d{2})年(\\d{1,2})月(?:(\\d{1,2})日)?$").matchEntire(value)
+    val separated = Regex("^(20\\d{2})[./-](\\d{1,2})(?:[./-](\\d{1,2}))?$").matchEntire(value)
+    val match = compact ?: chinese ?: separated ?: return null
     val date = "${match.groupValues[1]}-${match.groupValues[2].padStart(2, '0')}" +
         match.groupValues[3].takeIf(String::isNotBlank)?.let { "-${it.padStart(2, '0')}" }.orEmpty()
     return date.takeIf { expiryDay(it) != null }
