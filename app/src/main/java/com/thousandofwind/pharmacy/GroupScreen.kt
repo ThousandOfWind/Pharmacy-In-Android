@@ -24,6 +24,11 @@ fun GroupRow(group: CabinetGroup, matching: Int, highlighted: Boolean, open: () 
                 if (soon > 0) Text("其中 $soon 条90天内到期", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Amber)
                 if (group.records.all { it.remainingQuantity == 0 }) Text("这些库存已用完", style = MaterialTheme.typography.bodySmall)
                 if (group.records.any { expiryStatus(it.expiryDate) == ExpiryStatus.UNKNOWN }) Text("含日期待补充或待核对的库存", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                val tags = normalizeMedicineTags(group.records.flatMap { it.tags() })
+                if (tags.isNotEmpty()) {
+                    Text("组内标签", style = MaterialTheme.typography.labelSmall, color = PaperPalette.Muted)
+                    MedicineTags(tags, limit = 3)
+                }
             }
         }
         InkDivider()
