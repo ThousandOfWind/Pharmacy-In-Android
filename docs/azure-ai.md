@@ -30,7 +30,7 @@
 - `ai/AiViewModel.kt`：串行用户任务、发送确认、默认关闭库存授权、取消、可控错误。不自动重试或切换计费/模型。
 - `ai/AiScreen.kt`：流式回答、工具状态、可点击库存记录；安全窗口防截图。当前用原生文本显示，不引入复杂 Markdown/插件框架。
 
-Key 以 Android Keystore AES-GCM 加密保存在 noBackupFilesDir，并把资源 endpoint 一起加密绑定；取消/失败保存不能把另一个资源与旧凭据配对。Key 不进入 UI 状态、Bundle、Room、系统备份或药箱备份。连接元数据和 AI 会话也排除系统 cloud/device-transfer 备份；药箱原备份行为不变。删除连接清除本地密文，不撤销 Azure 远端 Key；需要轮换应在 Azure 官方控制台处理。
+Key 以 Android Keystore AES-GCM 加密保存在 noBackupFilesDir，并把完整连接配置与 Key 放入单一 AtomicFile；失败写入保留旧配置/Key，不会分步提交或混用资源。Key 不进入 UI 状态、Bundle、Room、系统备份或药箱备份。连接元数据和 AI 会话也排除系统 cloud/device-transfer 备份；药箱原备份行为不变。删除连接清除本地密文，不撤销 Azure 远端 Key；需要轮换应在 Azure 官方控制台处理。
 
 删除对话不能撤销 Azure 已接收的内容。切换连接后不能把旧会话发送到新连接，须新建；API Key 不写入会话配置。会话只保存完成问答，不持久保存工具参数全文；历史库存回答标记为可能过时；模型不保证每轮自动重查。开启查询权限后可明确要求重新查询，库存当前值仍以详情页为准。
 

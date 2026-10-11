@@ -21,7 +21,6 @@ data class AiUiState(
 
 class AiViewModel(application: Application) : AndroidViewModel(application) {
     private val credentials = AiCredentialStore(application)
-    private val settings = AiSettings(application)
     private val sessions = AiDatabase.get(application).sessions()
     private val state = MutableStateFlow(AiUiState())
     val ui: StateFlow<AiUiState> = state.asStateFlow()
@@ -30,9 +29,8 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             try {
-                val config = withContext(Dispatchers.IO) { settings.load() }
-                val hasKey = withContext(Dispatchers.IO) { credentials.read(config.endpoint)?.isNotBlank() == true }
-                state.update { it.copy(config = config, hasKey = hasKey) }
+                val stored = withContext(Dispatchers.IO) { credentials.load() }
+                state.update { it.copy(config = stored?.config ?: AzureConnection(), hasKey = stored?.secret?.isNotBlank() == true) }
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) { state.update { it.copy(error = "AI 连接无法读取，请重新保存或移除连接；本地会话与药箱不受影响") } }
         }
@@ -64,7 +62,10 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         state.update { it.copy(busy = true, error = null) }
         task = viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { if (enteredKey.isNotBlank()) credentials.save(clean.endpoint, enteredKey.trim()); settings.save(clean) }
+                withContext(Dispatchers.IO) {
+                    val key = enteredKey.trim().takeIf { it.isNotBlank() } ?: credentials.read(state.value.config) ?: error("Missing key")
+                    credentials.save(clean, key)
+                }
                 state.update { it.copy(config = clean, hasKey = true, acknowledged = false, allowCabinet = false, status = "连接已保存，请测试连接。更换配置后请新建会话") }
                 done()
             } catch (e: CancellationException) { throw e }
@@ -77,7 +78,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         state.update { it.copy(busy = true) }
         task = viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { credentials.clear(); settings.clear() }
+                withContext(Dispatchers.IO) { credentials.clear() }
                 state.update { it.copy(config = AzureConnection(), hasKey = false, acknowledged = false, allowCabinet = false, status = "已移除连接和 Key；会话仍保留在本地") }
             } catch (e: CancellationException) { throw e }
               catch (_: Exception) { state.update { it.copy(error = "移除连接失败") } }
@@ -135,7 +136,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         task = viewModelScope.launch {
             try {
                 withTimeout(60_000) {
-                    val key = withContext(Dispatchers.IO) { credentials.read(config.endpoint) } ?: error("Missing key")
+                    val key = withContext(Dispatchers.IO) { credentials.read(config) } ?: error("Missing key")
                     withContext(Dispatchers.IO) { AzureModelAdapter(config, key).use { adapter ->
                         val result = adapter.reply(listOf(AiMessage.User("只回复：连接成功")), false) {}
                         check(result.calls.isEmpty() && result.finish == "stop" && result.text.isNotBlank())
@@ -160,7 +161,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 var firstTurn = false
                 val result = withTimeout(90_000) {
-                    val key = withContext(Dispatchers.IO) { credentials.read(current.config.endpoint) } ?: error("Missing key")
+                    val key = withContext(Dispatchers.IO) { credentials.read(current.config) } ?: error("Missing key")
                     val history = sessions.recent(selected.id).asReversed().map { Json.decodeFromString<ChatTurn>(it.turnJson) }
                     firstTurn = history.isEmpty()
                     val cabinet = if (current.allowCabinet) MedicineTools { AppDatabase.getInstance(getApplication()).medicineDao().aiSnapshot() } else null
@@ -171,8 +172,16 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                     } }
                 }
                 currentCoroutineContext().ensureActive()
-                sessions.append(AiTurnEntity(sessionId = selected.id, turnJson = Json.encodeToString(ChatTurn(current.input.trim(), result.text, result.references))))
-                if (firstTurn && selected.title == "新对话") sessions.rename(selected.id, current.input.trim().take(40))
+                try {
+                    sessions.append(AiTurnEntity(sessionId = selected.id, turnJson = Json.encodeToString(ChatTurn(current.input.trim(), result.text, result.references))))
+                } catch (e: CancellationException) { throw e }
+                  catch (_: Exception) {
+                    state.update { it.copy(partial = result.text, error = "Azure 回答已完成，但本地保存失败；下方回答仅临时保留，不会重新发送", status = "") }
+                    return@launch
+                }
+                if (firstTurn && selected.title == "新对话") try { sessions.rename(selected.id, current.input.trim().take(40)) }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { state.update { it.copy(error = "回答已保存，但对话自动命名失败，可手动重命名") } }
                 state.update { it.copy(input = "", partial = "", status = "AI 回答可能有误，请核对药品原文") }
             } catch (e: CancellationException) { if (e is TimeoutCancellationException) state.update { it.copy(error = "对话超时，已停止；未完成回答不保存", partial = "", status = "") } else throw e }
               catch (e: Exception) { state.update { it.copy(error = safeError(e), partial = "", status = "") } }

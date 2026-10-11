@@ -14,7 +14,11 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/** Keystore-backed ciphertext in noBackupFilesDir, separate from settings, sessions and cabinet backups. */
+class StoredConnection(val config: AzureConnection, val secret: String) {
+    override fun toString() = "StoredConnection(<redacted>)"
+}
+
+/** One atomic encrypted file binds settings and secret; a failed write cannot split the pair. */
 class AiCredentialStore(context: Context) {
     private val file = File(context.noBackupFilesDir, "azure-ai.credential")
     private val alias = "pharmacy.azure.ai.v1"
@@ -26,8 +30,8 @@ class AiCredentialStore(context: Context) {
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
         }.generateKey()
     }
-    @Synchronized fun save(endpoint: String, value: String) {
-        val payload = buildJsonObject { put("endpoint", endpoint); put("key", value) }.toString()
+    @Synchronized fun save(config: AzureConnection, value: String) {
+        val payload = buildJsonObject { put("config", Json.encodeToJsonElement(config)); put("key", value) }.toString()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val bytes = cipher.iv + cipher.doFinal(payload.toByteArray(Charsets.UTF_8))
         require(bytes.size in 29..8192) { "Credential payload exceeds storage limit" }
@@ -35,17 +39,18 @@ class AiCredentialStore(context: Context) {
         val stream = target.startWrite()
         try { stream.write(bytes); target.finishWrite(stream) } catch (e: Exception) { target.failWrite(stream); throw e }
     }
-    @Synchronized fun read(expectedEndpoint: String): String? {
+    @Synchronized fun load(): StoredConnection? {
         if (!file.exists()) return null
         val bytes = android.util.AtomicFile(file).readFully()
         require(bytes.size in 29..8192)
         val payload = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12))) }
             .doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
         val objectValue = Json.parseToJsonElement(payload).jsonObject
-        // A cancelled/failed settings write must never pair another resource with this credential.
-        if (objectValue["endpoint"]?.jsonPrimitive?.content != expectedEndpoint) return null
-        return objectValue["key"]?.jsonPrimitive?.content
+        val config = Json.decodeFromJsonElement<AzureConnection>(objectValue.getValue("config"))
+        require(connectionError(config) == null)
+        return StoredConnection(config, objectValue.getValue("key").jsonPrimitive.content)
     }
+    @Synchronized fun read(expected: AzureConnection): String? = load()?.takeIf { it.config == expected }?.secret
     @Synchronized fun clear() { android.util.AtomicFile(file).delete() }
 }
 
@@ -72,11 +77,4 @@ abstract class AiDatabase : RoomDatabase() {
                 .build().also { instance = it }
         }
     }
-}
-
-class AiSettings(context: Context) {
-    private val prefs = context.getSharedPreferences("azure-ai-settings", Context.MODE_PRIVATE)
-    fun load(): AzureConnection = prefs.getString("connection", null)?.let { Json.decodeFromString<AzureConnection>(it) } ?: AzureConnection()
-    fun save(value: AzureConnection) { check(prefs.edit().putString("connection", Json.encodeToString(value)).commit()) }
-    fun clear() { check(prefs.edit().clear().commit()) }
 }

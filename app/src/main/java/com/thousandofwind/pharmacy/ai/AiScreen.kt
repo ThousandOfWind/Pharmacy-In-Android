@@ -77,7 +77,10 @@ fun AiScreen(viewModel: AiViewModel, dismiss: () -> Unit, openMedicine: (Long) -
                                 InkDivider()
                             }
                         }
-                        item { if (state.busy) { Text(state.input); if (state.partial.isNotBlank()) Text(state.partial); LinearProgressIndicator(Modifier.fillMaxWidth()) } }
+                        item {
+                            if (state.busy || state.partial.isNotBlank()) { Text(state.input); if (state.partial.isNotBlank()) Text(state.partial) }
+                            if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
                     }
                     Row {
                         Checkbox(state.allowCabinet, viewModel::allowCabinet, enabled = !state.busy)
