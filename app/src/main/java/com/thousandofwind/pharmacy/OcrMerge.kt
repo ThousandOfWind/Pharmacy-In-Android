@@ -12,7 +12,7 @@ fun appendOcrText(previous: String, current: String): String? {
 fun mergePhotoCandidates(previous: OcrCandidates, incoming: OcrCandidates): OcrCandidates {
     val warnings = (previous.warnings + incoming.warnings).toMutableList()
     fun merge(label: String, old: String, next: String): String {
-        if (old.isNotBlank() && next.isNotBlank() && old != next) warnings += "$label在不同照片中不一致，保留先前候选，请对照当前包装核对"
+        if (old.isNotBlank() && next.isNotBlank() && old != next) warnings += "${label}在不同照片中不一致，保留先前候选，请对照当前包装核对"
         return old.ifBlank { next }
     }
     val name = merge("药名", previous.name, incoming.name)
