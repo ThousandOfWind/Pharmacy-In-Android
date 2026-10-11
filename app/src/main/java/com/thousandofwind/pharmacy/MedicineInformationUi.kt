@@ -9,25 +9,30 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MedicineInformationFields(
     information: MedicineInformation, group: MedicineInformationGroup, enabled: Boolean,
-    update: (MedicineInformationField, String) -> Unit
+    exclude: Set<MedicineInformationField> = emptySet(), update: (MedicineInformationField, String) -> Unit
 ) {
-    MedicineInformationField.entries.filter { it.group == group }.forEach { field ->
-        val value = information[field]
-        val error = medicineInformationFieldError(field, value)
-        OutlinedTextField(
-            value = value, onValueChange = { update(field, it) }, label = { Text(field.label) },
-            singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
-            maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,
-            supportingText = {
-                Text(error ?: listOf(field.hint, "可留空，最多 ${field.maxLength} 个字符。").filter(String::isNotBlank).joinToString(" "))
-            }, modifier = Modifier.fillMaxWidth()
-        )
+    MedicineInformationField.entries.filter { it.group == group && it !in exclude }.forEach { field ->
+        MedicineInformationInput(field, information[field], enabled) { update(field, it) }
     }
 }
 
 @Composable
-fun MedicineInformationDetails(information: MedicineInformation, group: MedicineInformationGroup) {
-    val fields = MedicineInformationField.entries.filter { it.group == group && information[it].isNotBlank() }
+fun MedicineInformationInput(field: MedicineInformationField, value: String, enabled: Boolean, update: (String) -> Unit) {
+    val error = medicineInformationFieldError(field, value)
+    PaperField(
+        value = value, onValueChange = update, label = field.label,
+        singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
+        maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,
+        supportingText = {
+            Text(error ?: listOf(field.hint, "可留空，最多 ${field.maxLength} 个字符。").filter(String::isNotBlank).joinToString(" "),
+                style = MaterialTheme.typography.bodySmall, color = if (error != null) PaperPalette.Error else PaperPalette.Muted)
+        }, modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+fun MedicineInformationDetails(information: MedicineInformation, group: MedicineInformationGroup, exclude: Set<MedicineInformationField> = emptySet()) {
+    val fields = MedicineInformationField.entries.filter { it.group == group && it !in exclude && information[it].isNotBlank() }
     if (fields.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             fields.forEach { field ->

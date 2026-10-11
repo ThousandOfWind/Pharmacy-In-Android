@@ -1,5 +1,6 @@
 package com.thousandofwind.pharmacy
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -19,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -32,43 +34,61 @@ fun DetailScreen(
     var stock by rememberSaveable(item.id) { mutableStateOf(false) }
     var confirmRemove by rememberSaveable(item.id) { mutableStateOf(false) }
     var raw by rememberSaveable(item.id) { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        if (item.photos().isNotEmpty()) PhotoStrip(item.photos())
-        Text(item.name, style = MaterialTheme.typography.headlineMedium)
-        if (item.tags().isNotEmpty()) {
-            Text("标签", style = MaterialTheme.typography.titleSmall)
-            MedicineTags(item.tags())
-            Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    var identity by rememberSaveable(item.id) { mutableStateOf(false) }
+    var photos by rememberSaveable(item.id) { mutableStateOf(false) }
+    var leaflet by rememberSaveable(item.id) { mutableStateOf(false) }
+    var notes by rememberSaveable(item.id) { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(item.name, style = MaterialTheme.typography.headlineMedium)
+                val summary = listOf(item.information.brandName.takeUnless { it.equals(item.name, true) }.orEmpty(), item.information.specification).filter(String::isNotBlank).joinToString(" · ")
+                if (summary.isNotBlank()) Text(summary, color = PaperPalette.Muted)
+            }
+            val photo = item.photos().firstOrNull()
+            if (photo == null) Image(painterResource(R.drawable.ink_package), null, Modifier.width(72.dp).height(88.dp))
+            else AsyncImage(photo, "${item.name}的包装照片", modifier = Modifier.size(78.dp).clip(MaterialTheme.shapes.small).clickable { photos = true }, contentScale = ContentScale.Crop)
         }
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ExpiryLabel(item.expiryDate)
-                if (expiryStatus(item.expiryDate) == ExpiryStatus.EXPIRED) Text("该记录已过期，请核对包装并妥善处理。", color = MaterialTheme.colorScheme.error)
-                Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.titleLarge)
-                Button(onClick = { stock = true }, enabled = !busy) { Text("更新余量") }
+        Spacer(Modifier.height(8.dp))
+        ExpiryLabel(item.expiryDate)
+        if (expiryStatus(item.expiryDate) == ExpiryStatus.EXPIRED) Text("该记录已过期，请核对包装并妥善处理。", color = PaperPalette.Error)
+        InkDivider()
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("当前余量", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
+            Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.headlineSmall)
+            TextButton(onClick = { stock = true }, enabled = !busy, modifier = Modifier.align(Alignment.End).paperBorder()) {
+                Text("更新余量"); Spacer(Modifier.width(8.dp)); InkIcon(InkSymbol.NEXT)
             }
         }
-        OutlinedButton(onClick = edit, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("编辑资料 / 补拍照片") }
-        if (item.information.searchableValues().any(String::isNotBlank)) {
-            Text("药品资料", style = MaterialTheme.typography.titleMedium)
-            MedicineInformationDetails(item.information, MedicineInformationGroup.IDENTITY)
+        InkDivider()
+        Text("存放位置", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
+        Text(item.information.storageLocation.ifBlank { "尚未填写" }, style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(8.dp))
+        PaperDisclosure("包装与药品资料", identity, { identity = !identity }) {
+            MedicineInformationDetails(item.information, MedicineInformationGroup.IDENTITY, exclude = setOf(MedicineInformationField.STORAGE_LOCATION))
+            val hasIdentity = MedicineInformationField.entries.any {
+                it.group == MedicineInformationGroup.IDENTITY && it != MedicineInformationField.STORAGE_LOCATION && item.information[it].isNotBlank()
+            }
+            if (!hasIdentity) Text("尚未补充药品资料。")
+            if (item.tags().isNotEmpty()) MedicineTags(item.tags())
+            Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
         }
-        Text("说明书记录", style = MaterialTheme.typography.titleMedium)
+        PaperDisclosure("包装照片", photos, { photos = !photos }, subtitle = if (item.photos().isEmpty()) "尚未添加" else "${item.photos().size} 张") {
+            if (item.photos().isNotEmpty()) PhotoStrip(item.photos())
+            TextButton(onClick = edit, enabled = !busy) { Text("编辑资料 / 补拍照片") }
+        }
+        PaperDisclosure("说明书原文", leaflet, { leaflet = !leaflet }) {
+            if (item.efficacy.isNotBlank()) {
+                Text("适应症 / 功能主治（原文）", style = MaterialTheme.typography.titleSmall)
+                Text(item.efficacy)
+            }
+            val hasLeaflet = MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && item.information[it].isNotBlank() }
+            if (item.efficacy.isBlank() && !hasLeaflet) Text("尚未记录说明书，可编辑填写或补拍说明书照片。")
+            MedicineInformationDetails(item.information, MedicineInformationGroup.LEAFLET)
+        }
         LeafletDisclaimer()
-        if (item.efficacy.isNotBlank()) {
-            Text("适应症 / 功能主治（原文）", style = MaterialTheme.typography.titleSmall)
-            Text(item.efficacy)
-        }
-        val hasLeaflet = MedicineInformationField.entries.any {
-            it.group == MedicineInformationGroup.LEAFLET && item.information[it].isNotBlank()
-        }
-        if (item.efficacy.isBlank() && !hasLeaflet) Text("尚未记录说明书，可编辑填写或补拍说明书照片。")
-        MedicineInformationDetails(item.information, MedicineInformationGroup.LEAFLET)
-        if (item.notes.isNotBlank()) { Text("备注", style = MaterialTheme.typography.titleSmall); Text(item.notes) }
-        if (item.ocrRawText.isNotBlank()) {
-            TextButton(onClick = { raw = !raw }) { Text(if (raw) "收起识别原文" else "查看识别原文") }
-            if (raw) Text(item.ocrRawText, style = MaterialTheme.typography.bodySmall)
-        }
+        if (item.notes.isNotBlank()) PaperDisclosure("备注", notes, { notes = !notes }) { Text(item.notes) }
+        if (item.ocrRawText.isNotBlank()) PaperDisclosure("识别原文", raw, { raw = !raw }) { Text(item.ocrRawText, style = MaterialTheme.typography.bodySmall) }
         TextButton(onClick = { confirmRemove = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("移出药箱", color = MaterialTheme.colorScheme.error) }
     }
     if (stock) StockDialog(item, busy, { stock = false }, updateStock)
@@ -80,27 +100,27 @@ fun DetailScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StockDialog(item: MedicineEntity, busy: Boolean, dismiss: () -> Unit, save: (String, String, (Boolean) -> Unit) -> Unit) {
     var quantity by rememberSaveable(item.id) { mutableStateOf(item.remainingQuantity?.toString().orEmpty()) }
     var unit by rememberSaveable(item.id) { mutableStateOf(item.quantityUnit) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
-    AlertDialog(
-        onDismissRequest = { if (!busy) dismiss() }, title = { Text("更新余量") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(item.name)
-                QuantityFields(quantity, unit, !busy, { quantity = it; error = null }, { unit = it; error = null })
-                Text("输入现在还剩多少。留空表示未知，0 表示已用完。", style = MaterialTheme.typography.bodySmall)
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        },
-        confirmButton = { TextButton(onClick = {
-            error = quantityError(quantity, unit)
-            if (error == null) save(quantity, unit) { success -> if (success) dismiss() else error = "更新失败，请重试" }
-        }, enabled = !busy) { Text(if (busy) "更新中…" else "确认更新") } },
-        dismissButton = { TextButton(onClick = dismiss, enabled = !busy) { Text("取消") } }
-    )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true, confirmValueChange = { !busy })
+    ModalBottomSheet(onDismissRequest = { if (!busy) dismiss() }, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text("更新余量", style = PaperHeading)
+            Text(item.name, color = PaperPalette.Muted)
+            QuantityFields(quantity, unit, !busy, { quantity = it; error = null }, { unit = it; error = null })
+            Text("留空代表未知，0 代表已用完。这里只记录库存，不推算服用剂量。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+            error?.let { Text(it, color = PaperPalette.Error) }
+            PenButton(if (busy) "更新中…" else "确认更新", onClick = {
+                error = quantityError(quantity, unit)
+                if (error == null) save(quantity, unit) { success -> if (success) dismiss() else error = "更新失败，请重试" }
+            }, enabled = !busy, modifier = Modifier.fillMaxWidth(), icon = InkSymbol.CHECK)
+            TextButton(onClick = dismiss, enabled = !busy, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("取消") }
+        }
+    }
 }
 
 @Composable

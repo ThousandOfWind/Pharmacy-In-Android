@@ -24,6 +24,17 @@ fun EditorScreen(
     var identity by rememberSaveable(draft.id) { mutableStateOf(false) }
     var leaflet by rememberSaveable(draft.id) { mutableStateOf(false) }
     var notes by rememberSaveable(draft.id) { mutableStateOf(false) }
+    var optional by rememberSaveable(draft.id) { mutableStateOf(false) }
+    var tags by rememberSaveable(draft.id) { mutableStateOf(false) }
+    LaunchedEffect(state.session.error) {
+        if (state.session.error != null && quantityError(draft.quantity, draft.unit) != null) optional = true
+        if (state.session.error != null && medicineTagsError(draft.tags + draft.tagInput) != null) { optional = true; tags = true }
+        if (state.session.error != null && medicineInformationError(draft.information) != null) {
+            optional = true
+            if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.IDENTITY && it != MedicineInformationField.STORAGE_LOCATION && medicineInformationFieldError(it, draft.information[it]) != null }) identity = true
+            if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && medicineInformationFieldError(it, draft.information[it]) != null }) leaflet = true
+        }
+    }
     var raw by rememberSaveable(draft.id) { mutableStateOf(false) }
     var datePicker by rememberSaveable(draft.id) { mutableStateOf(false) }
     if (datePicker) {
@@ -47,13 +58,8 @@ fun EditorScreen(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text("先确认是哪种药，再核对有效期。余量和其他信息可以稍后补充。", style = MaterialTheme.typography.bodyMedium)
+        Text("先记下名字，其他慢慢补充。", style = PaperHeading, color = PaperPalette.Muted)
         if (draft.photos.isNotEmpty()) PhotoStrip(draft.photos)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = camera, enabled = !state.scanning && !state.busy) { Text(if (draft.photos.isEmpty()) "拍药盒" else "补拍包装 / 说明书") }
-            TextButton(onClick = picker, enabled = !state.scanning && !state.busy) { Text("从相册选择") }
-        }
-        Text("有效期通常在盒底或侧面；也可拍说明书留存。点击照片可放大核对。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (state.scanning) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("正在本地识别，已有填写不会被覆盖…", style = MaterialTheme.typography.bodySmall)
@@ -70,48 +76,64 @@ fun EditorScreen(
                         update { copy(expiry = candidates.expiry, reviewed = false) }
                     }
                     CandidateRow("包装功效", draft.candidates.efficacy, draft.efficacy.isBlank() && !state.busy) {
-                        update { copy(efficacy = candidates.efficacy) }; leaflet = true
+                        update { copy(efficacy = candidates.efficacy) }; optional = true; leaflet = true
                     }
                     TextButton(onClick = { raw = !raw }) { Text(if (raw) "收起识别原文" else "查看识别原文") }
                     if (raw) Text(draft.rawText, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
-        OutlinedTextField(
+        PaperField(
             value = draft.name, onValueChange = { value -> update { copy(name = value, reviewed = false) } },
-            label = { Text("药品名称（必填）") }, singleLine = true, enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth()
+            label = "药品名称（必填）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
+            isError = state.session.error != null && draft.name.isBlank()
         )
-        OutlinedTextField(
+        PaperField(
             value = draft.expiry, onValueChange = { value -> update { copy(expiry = value, reviewed = false) } },
-            label = { Text("有效期至（可选）") }, singleLine = true, enabled = !state.busy,
+            label = "有效期至（可选）", enabled = !state.busy,
+            isError = draft.expiry.isNotBlank() && expiryDay(draft.expiry) == null,
             trailingIcon = { TextButton(onClick = { datePicker = true }, enabled = !state.busy) { Text("选日期") } },
-            supportingText = { Text("填 YYYY-MM 或 YYYY-MM-DD。只有月份按月末计算；生产日期不是有效期。无法确认可留空。") },
+            supportingText = { Text("填 YYYY-MM 或 YYYY-MM-DD。只有月份按月末计算；生产日期不是有效期。无法确认可留空。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted) },
             modifier = Modifier.fillMaxWidth()
         )
-        QuantityFields(draft.quantity, draft.unit, !state.busy,
-            { value -> update { copy(quantity = value) } }, { value -> update { copy(unit = value) } })
-        Text("不填写代表未知，0 代表已用完。不同单位的余量不会相加。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = { identity = !identity }) { Text(if (identity) "收起药品资料" else "＋ 品牌、规格、厂家等药品资料（可选）") }
-        if (identity) MedicineInformationFields(draft.information, MedicineInformationGroup.IDENTITY, !state.busy) { field, value ->
-            update { copy(information = information.withValue(field, value)) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(onClick = camera, enabled = !state.scanning && !state.busy, modifier = Modifier.weight(1f)) {
+                InkIcon(InkSymbol.CAMERA); Spacer(Modifier.width(8.dp)); Text(if (draft.photos.isEmpty()) "拍药盒" else "补拍包装 / 说明书")
+            }
+            TextButton(onClick = picker, enabled = !state.scanning && !state.busy) { Text("从相册选择") }
         }
-        MedicineTagEditor(draft, state.availableTags, !state.busy, update)
-        TextButton(onClick = { leaflet = !leaflet }) { Text(if (leaflet) "收起说明书记录" else "＋ 说明书记录（可选）") }
-        if (leaflet) {
-            LeafletDisclaimer()
-            OutlinedTextField(
-                value = draft.efficacy, onValueChange = { value -> update { copy(efficacy = value) } },
-                label = { Text("适应症 / 功能主治（原文）") }, supportingText = { Text("沿用原包装功效记录，不自动推断疗效。") },
-                minLines = 2, maxLines = 5, enabled = !state.busy, modifier = Modifier.fillMaxWidth()
-            )
-            MedicineInformationFields(draft.information, MedicineInformationGroup.LEAFLET, !state.busy) { field, value ->
-                update { copy(information = information.withValue(field, value)) }
+        Text("有效期通常在盒底或侧面；点击照片可放大核对。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+        PaperDisclosure("余量、位置与更多资料", optional, { optional = !optional }) {
+            QuantityFields(draft.quantity, draft.unit, !state.busy,
+                { value -> update { copy(quantity = value) } }, { value -> update { copy(unit = value) } })
+            Text("不填写代表未知，0 代表已用完。不同单位的余量不会相加。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+            MedicineInformationInput(MedicineInformationField.STORAGE_LOCATION, draft.information.storageLocation, !state.busy) { value ->
+                update { copy(information = information.withValue(MedicineInformationField.STORAGE_LOCATION, value)) }
+            }
+            PaperDisclosure("品牌、规格、厂家等药品资料", identity, { identity = !identity }) {
+                MedicineInformationFields(draft.information, MedicineInformationGroup.IDENTITY, !state.busy, exclude = setOf(MedicineInformationField.STORAGE_LOCATION)) { field, value ->
+                    update { copy(information = information.withValue(field, value)) }
+                }
+            }
+            PaperDisclosure("标签", tags, { tags = !tags }, subtitle = if (draft.tags.isEmpty()) "可选" else draft.tags.joinToString(" · ")) {
+                MedicineTagEditor(draft, state.availableTags, !state.busy, update)
+            }
+            PaperDisclosure("说明书记录", leaflet, { leaflet = !leaflet }) {
+                LeafletDisclaimer()
+                PaperField(
+                    value = draft.efficacy, onValueChange = { value -> update { copy(efficacy = value) } },
+                    label = "适应症 / 功能主治（原文）", supportingText = { Text("沿用原包装功效记录，不自动推断疗效。", style = MaterialTheme.typography.bodySmall) },
+                    singleLine = false, minLines = 2, maxLines = 5, enabled = !state.busy, modifier = Modifier.fillMaxWidth()
+                )
+                MedicineInformationFields(draft.information, MedicineInformationGroup.LEAFLET, !state.busy) { field, value ->
+                    update { copy(information = information.withValue(field, value)) }
+                }
+            }
+            PaperDisclosure("备注", notes, { notes = !notes }) {
+                PaperField(value = draft.notes, onValueChange = { value -> update { copy(notes = value) } },
+                    label = "备注", singleLine = false, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
             }
         }
-        TextButton(onClick = { notes = !notes }) { Text(if (notes) "收起备注" else "＋ 备注（可选）") }
-        if (notes) OutlinedTextField(value = draft.notes, onValueChange = { value -> update { copy(notes = value) } },
-            label = { Text("备注") }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
         if (draft.rawText.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = draft.reviewed, onCheckedChange = { value -> update { copy(reviewed = value) } }, enabled = !state.busy)
             Text("我已对照包装核对名称和有效期", style = MaterialTheme.typography.bodyMedium)
@@ -135,9 +157,9 @@ private fun CandidateRow(label: String, value: String, canApply: Boolean, apply:
 fun QuantityFields(quantity: String, unit: String, enabled: Boolean, onQuantity: (String) -> Unit, onUnit: (String) -> Unit) {
     var menu by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedTextField(
-            value = quantity, onValueChange = onQuantity, label = { Text("当前余量（可选）") },
-            singleLine = true, enabled = enabled, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        PaperField(
+            value = quantity, onValueChange = onQuantity, label = "当前余量（可选）",
+            enabled = enabled, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.weight(1f)
         )
         Box {

@@ -10,12 +10,21 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -32,13 +41,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = android.graphics.Color.rgb(252, 250, 243)
+        window.navigationBarColor = android.graphics.Color.rgb(252, 250, 243)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme(
-                primary = Color(0xFF176C62), onPrimary = Color.White,
-                primaryContainer = Color(0xFFD7EEE7), onPrimaryContainer = Color(0xFF123E37),
-                secondaryContainer = Color(0xFFEAF1ED), background = Color(0xFFF7F9F6),
-                surface = Color(0xFFF7F9F6), surfaceVariant = Color(0xFFEAF1ED)
-            )) { MedicineApp(viewModel, updateViewModel) }
+            PharmacyTheme { MedicineApp(viewModel, updateViewModel) }
         }
     }
 }
@@ -49,8 +59,10 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
+    val screenState = rememberSaveableStateHolder()
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var showUpdate by rememberSaveable { mutableStateOf(false) }
+    var showMore by rememberSaveable { mutableStateOf(false) }
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf("") }
 
@@ -84,6 +96,9 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         if (viewModel.hasUnsavedChanges()) confirmLeave = true else viewModel.back()
     }
     BackHandler(state.session.screen != Screen.CABINET) { if (!state.busy) back() }
+    LaunchedEffect(state.session.screen) {
+        if (state.session.screen != Screen.EDITOR) screenState.removeState(Screen.EDITOR)
+    }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { notice ->
             val result = snackbar.showSnackbar(notice.text, actionLabel = if (notice.canUndo) "撤销" else null,
@@ -95,64 +110,82 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         modifier = Modifier.imePadding(),
         topBar = {
             TopAppBar(
-                title = { Text(when (state.session.screen) {
-                    Screen.CABINET -> "我的药箱"
-                    Screen.EDITOR -> if (state.session.draft.id == 0L) "核对并添加" else "编辑药品"
-                    Screen.DETAIL -> "药品详情"
-                }) },
+                title = {
+                    if (state.session.screen == Screen.CABINET) PaperWordmark()
+                    else Text(if (state.session.screen == Screen.DETAIL) "药品详情" else if (state.session.draft.id == 0L) "核对并添加" else "编辑药品", style = PaperHeading)
+                },
                 navigationIcon = {
-                    if (state.session.screen != Screen.CABINET) TextButton(onClick = ::back, enabled = !state.busy) { Text("返回") }
+                    if (state.session.screen != Screen.CABINET) TextButton(onClick = ::back, enabled = !state.busy) { InkIcon(InkSymbol.BACK); Text("返回") }
                 },
                 actions = {
                     if (state.session.screen == Screen.CABINET) {
-                        TextButton(onClick = { showUpdate = true }) { Text("更新") }
-                        TextButton(onClick = { showAdd = true }, enabled = state.loaded && state.databaseError == null) { Text("＋ 添加") }
+                        Box {
+                            TextButton(onClick = { showMore = true }) { InkIcon(InkSymbol.MORE); Text("更多") }
+                            DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                                DropdownMenuItem(text = { Text("检查更新") }, onClick = { showMore = false; showUpdate = true })
+                            }
+                        }
+                    } else if (state.session.screen == Screen.DETAIL) {
+                        state.selected?.let { item -> TextButton(onClick = { viewModel.edit(item) }, enabled = !state.busy) { Text("编辑") } }
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            if (state.session.screen == Screen.EDITOR) Surface(tonalElevation = 3.dp) {
+            if (state.session.screen == Screen.CABINET && state.loaded && state.databaseError == null && state.medicines.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) {
+                    PenButton("添加药品", { showAdd = true }, icon = InkSymbol.PLUS)
+                }
+            }
+            if (state.session.screen == Screen.EDITOR) Surface {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
                     state.session.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                    Button(
-                        onClick = viewModel::save,
-                        enabled = state.loaded && !state.busy && !state.scanning && state.databaseError == null,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
-                    ) { Text(if (state.busy) "保存中…" else if (state.session.draft.id == 0L) "保存到药箱" else "保存修改") }
+                    PenButton(
+                        if (state.busy) "保存中…" else if (state.session.draft.id == 0L) "保存到药箱" else "保存修改",
+                        onClick = viewModel::save, enabled = state.loaded && !state.busy && !state.scanning && state.databaseError == null,
+                        modifier = Modifier.fillMaxWidth(), icon = InkSymbol.CHECK
+                    )
                 }
             }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            when (state.session.screen) {
-                Screen.CABINET -> CabinetScreen(state, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
-                Screen.EDITOR -> EditorScreen(state, viewModel::updateDraft, ::takePhoto, ::pickPhoto)
-                Screen.DETAIL -> state.selected?.let { item ->
-                    DetailScreen(item, state.busy, { viewModel.edit(item) },
-                        { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) }, { viewModel.remove(item) })
-                } ?: Column(Modifier.padding(24.dp)) {
-                    Text(if (!state.loaded) "正在读取…" else state.databaseError ?: "这条记录已不在药箱中")
-                    TextButton(onClick = viewModel::back) { Text("回到药箱") }
+            AnimatedContent(
+                targetState = state, contentKey = { it.session.screen },
+                transitionSpec = {
+                    val direction = if (targetState.session.screen == Screen.CABINET) -1 else 1
+                    (fadeIn(tween(180)) + slideInHorizontally(tween(220)) { direction * it / 30 }) togetherWith
+                        (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 40 })
+                }, label = "page transition"
+            ) { page ->
+                screenState.SaveableStateProvider(if (page.session.screen == Screen.DETAIL) "detail-${page.session.selectedId}" else page.session.screen) {
+                    when (page.session.screen) {
+                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
+                        Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto)
+                        Screen.DETAIL -> page.selected?.let { item ->
+                            DetailScreen(item, page.busy, { viewModel.edit(item) },
+                                { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) }, { viewModel.remove(item) })
+                        } ?: Column(Modifier.padding(24.dp)) {
+                            Text(if (!page.loaded) "正在读取…" else page.databaseError ?: "这条记录已不在药箱中")
+                            TextButton(onClick = viewModel::back) { Text("回到药箱") }
+                        }
+                    }
                 }
             }
         }
     }
     if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
-    if (showAdd) AlertDialog(
-        onDismissRequest = { showAdd = false },
-        title = { Text("添加到药箱") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("先拍药盒正面，之后可补拍有效期。也可以直接手动填写。")
-                Button(onClick = { showAdd = false; viewModel.beginNew(); takePhoto() }, modifier = Modifier.fillMaxWidth()) { Text("拍照添加") }
-                OutlinedButton(onClick = { showAdd = false; viewModel.beginNew(); pickPhoto() }, modifier = Modifier.fillMaxWidth()) { Text("从相册选择") }
-                TextButton(onClick = { showAdd = false; viewModel.beginNew() }, modifier = Modifier.fillMaxWidth()) { Text("手动添加") }
-            }
-        },
-        confirmButton = {}, dismissButton = { TextButton(onClick = { showAdd = false }) { Text("取消") } }
-    )
+    if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("收好新的一盒", style = PaperHeading)
+            Text("拍照帮你记录，由你核对后保存。也可以直接手动填写。", color = PaperPalette.Muted)
+            PenButton("拍照添加", { showAdd = false; viewModel.beginNew(); takePhoto() }, Modifier.fillMaxWidth(), icon = InkSymbol.CAMERA)
+            TextButton(onClick = { showAdd = false; viewModel.beginNew() }, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Text("手动添加", style = MaterialTheme.typography.titleMedium) }
+            InkDivider()
+            TextButton(onClick = { showAdd = false; viewModel.beginNew(); pickPhoto() }, modifier = Modifier.fillMaxWidth()) { Text("从相册选择") }
+        }
+    }
     if (confirmLeave) AlertDialog(
         onDismissRequest = { confirmLeave = false },
         title = { Text("放弃本次修改？") }, text = { Text("还没有保存，返回后本次填写将被丢弃。") },

@@ -28,7 +28,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 enum class Screen { CABINET, EDITOR, DETAIL }
-enum class CabinetFilter(val label: String) { ALL("全部"), SOON("临期"), EXPIRED("已过期"), UNKNOWN("日期待补充") }
+enum class CabinetFilter(val label: String) { ALL("全部"), SOON("临期"), EXPIRED("已过期"), UNKNOWN("日期待补充"), ATTENTION("需要留意") }
 
 data class MedicineDraft(
     val id: Long = 0,
@@ -107,6 +107,7 @@ data class UiState(
                 CabinetFilter.SOON -> expiryStatus(item.expiryDate) == ExpiryStatus.SOON
                 CabinetFilter.EXPIRED -> expiryStatus(item.expiryDate) == ExpiryStatus.EXPIRED
                 CabinetFilter.UNKNOWN -> expiryStatus(item.expiryDate) == ExpiryStatus.UNKNOWN
+                CabinetFilter.ATTENTION -> expiryStatus(item.expiryDate) in setOf(ExpiryStatus.EXPIRED, ExpiryStatus.SOON)
             }
     }
 }
