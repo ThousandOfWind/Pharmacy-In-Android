@@ -44,7 +44,7 @@ private data class Section(val label: String, val text: String)
 fun parseOcrDate(text: String): String? {
     val value = text.replace(Regex("\\s+"), "")
     val compact = Regex("^(20\\d{2})(\\d{2})(\\d{2})$").matchEntire(value)
-    val separated = Regex("^(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2}))?月?日?$").matchEntire(value)
+    val separated = Regex("^(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2})日?|月?)$").matchEntire(value)
     val match = compact ?: separated ?: return null
     val date = "${match.groupValues[1]}-${match.groupValues[2].padStart(2, '0')}" +
         match.groupValues[3].takeIf(String::isNotBlank)?.let { "-${it.padStart(2, '0')}" }.orEmpty()
@@ -55,7 +55,7 @@ fun parseOcrDate(text: String): String? {
  * typed batch/MFG/expiry group; an incomplete group must not bind its first value to expiry. */
 private fun alignDateColumns(text: String): String {
     val columnLabels = setOf("产品批号", "生产批号", "批号", "生产日期") + expiryLabels
-    fun label(line: String) = key(line.trim().removeSuffix(":").removeSuffix("："))
+    fun label(line: String) = key(line.trim().replace(Regex("^[|｜I]"), "").removeSuffix(":").removeSuffix("："))
     val input = text.lines()
     val output = mutableListOf<String>()
     var i = 0

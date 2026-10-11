@@ -19,6 +19,9 @@ import java.time.ZoneOffset
 fun hasCurrentOcrResults(draft: MedicineDraft, baseline: MedicineDraft): Boolean =
     draft.candidates != OcrCandidates() || draft.rawText.isNotBlank() && draft.rawText != baseline.rawText
 
+fun requiresOcrConfirmation(draft: MedicineDraft, baseline: MedicineDraft): Boolean =
+    !draft.reviewed && (draft.rawText.isNotBlank() || draft.photos != baseline.photos)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
@@ -30,6 +33,7 @@ fun EditorScreen(
     val draft = state.session.draft
     val editing = draft.id != 0L
     val currentOcr = hasCurrentOcrResults(draft, state.session.baseline)
+    val needsConfirmation = requiresOcrConfirmation(draft, state.session.baseline)
     var tab by rememberSaveable(draft.id) { mutableIntStateOf(0) }
     var cropPhoto by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
     var raw by rememberSaveable(draft.id) { mutableStateOf(false) }
@@ -49,7 +53,7 @@ fun EditorScreen(
         if (state.session.error != null) {
             val leafletError = MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && medicineInformationFieldError(it, draft.information[it]) != null }
             if (editing) {
-                tab = if (leafletError) 1 else if (draft.rawText.isNotBlank() && !draft.reviewed && formError(draft.name, draft.expiry, draft.quantity, draft.unit) == null && medicineTagsError(draft.tags + draft.tagInput) == null && medicineInformationError(draft.information) == null) 2 else 0
+                tab = if (leafletError) 1 else if (needsConfirmation && formError(draft.name, draft.expiry, draft.quantity, draft.unit) == null && medicineTagsError(draft.tags + draft.tagInput) == null && medicineInformationError(draft.information) == null) 2 else 0
             } else {
                 optional = true
                 if (medicineTagsError(draft.tags + draft.tagInput) != null) tags = true
@@ -84,7 +88,7 @@ fun EditorScreen(
             if (currentOcr && tab != 2) OutlinedButton(onClick = { tab = 2 }, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                 Text("有本次识别结果 → 前往核对")
             }
-            if (draft.rawText.isNotBlank() && !draft.reviewed && tab != 2)
+            if (needsConfirmation && tab != 2)
                 Text("照片或识别资料已变更，请到“照片 / 原文”核对确认后保存。", Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall, color = PaperPalette.Error)
         }
         key(draft.id, if (editing) tab else -1) {
@@ -141,7 +145,7 @@ fun EditorScreen(
                     }
                 }
                 if (editing && tab == 1) DraftLeaflet(draft, !state.busy, update)
-                if (draft.rawText.isNotBlank() && (!editing || tab == 2 && !draft.reviewed)) OcrReviewConfirmation(draft, !state.busy && !state.scanning, update)
+                if ((!editing && (draft.rawText.isNotBlank() || draft.photos != state.session.baseline.photos)) || editing && tab == 2 && needsConfirmation) OcrReviewConfirmation(draft, !state.busy && !state.scanning, update)
                 Text(if (editing) "三个分页的改动一起保存；返回可放弃本次编辑。" else "同名但有效期不同的药品，请分开添加为库存记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
