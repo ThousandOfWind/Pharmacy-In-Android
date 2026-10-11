@@ -142,8 +142,8 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                     } }
                 }
                 state.update { it.copy(status = "连接测试通过：该 deployment 的流式文本可用，尚未验证工具调用") }
-            } catch (e: CancellationException) { if (e is TimeoutCancellationException) state.update { it.copy(error = "连接超时，已停止") } else throw e }
-              catch (e: Exception) { state.update { it.copy(error = safeError(e)) } }
+            } catch (e: CancellationException) { if (e is TimeoutCancellationException) state.update { it.copy(error = "连接超时，已停止", status = "") } else throw e }
+              catch (e: Exception) { state.update { it.copy(error = safeError(e), status = "") } }
             finally { state.update { it.copy(busy = false) } }
         }
     }
@@ -158,9 +158,11 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         state.update { it.copy(busy = true, partial = "", error = null, status = "正在连接 Azure…") }
         task = viewModelScope.launch {
             try {
+                var firstTurn = false
                 val result = withTimeout(90_000) {
                     val key = withContext(Dispatchers.IO) { credentials.read(current.config.endpoint) } ?: error("Missing key")
                     val history = sessions.recent(selected.id).asReversed().map { Json.decodeFromString<ChatTurn>(it.turnJson) }
+                    firstTurn = history.isEmpty()
                     val cabinet = if (current.allowCabinet) MedicineTools { AppDatabase.getInstance(getApplication()).medicineDao().aiSnapshot() } else null
                     withContext(Dispatchers.IO) { AzureModelAdapter(current.config, key).use { adapter ->
                         AssistantEngine().run(current.input.trim(), history, adapter, cabinet,
@@ -170,11 +172,11 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 currentCoroutineContext().ensureActive()
                 sessions.append(AiTurnEntity(sessionId = selected.id, turnJson = Json.encodeToString(ChatTurn(current.input.trim(), result.text, result.references))))
-                if (current.turns.isEmpty()) sessions.rename(selected.id, current.input.trim().take(40))
+                if (firstTurn && selected.title == "新对话") sessions.rename(selected.id, current.input.trim().take(40))
                 state.update { it.copy(input = "", partial = "", status = "AI 回答可能有误，请核对药品原文") }
-            } catch (e: CancellationException) { if (e is TimeoutCancellationException) state.update { it.copy(error = "对话超时，已停止；未完成回答不保存", partial = "") } else throw e }
-              catch (e: Exception) { state.update { it.copy(error = safeError(e), partial = "") } }
-            finally { state.update { it.copy(busy = false) } }
+            } catch (e: CancellationException) { if (e is TimeoutCancellationException) state.update { it.copy(error = "对话超时，已停止；未完成回答不保存", partial = "", status = "") } else throw e }
+              catch (e: Exception) { state.update { it.copy(error = safeError(e), partial = "", status = "") } }
+            finally { state.update { it.copy(busy = false, allowCabinet = false) } }
         }
     }
     private fun safeError(error: Exception): String = when (error) {
