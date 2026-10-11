@@ -78,8 +78,9 @@ fun DetailScreen(
             }
             if (!hasIdentity) Text("尚未补充药品资料。")
         }
-        PaperDisclosure("包装照片", photos, { photos = !photos }, subtitle = if (item.photos().isEmpty()) "尚未添加" else "${item.photos().size} 张") {
-            if (item.photos().isNotEmpty()) PhotoStrip(item.photos())
+        PaperDisclosure("药品图", photos, { photos = !photos }, subtitle = if (item.photos().isEmpty()) "尚未添加" else "${item.photos().size} 张") {
+            if (item.photos().isNotEmpty()) PhotoStrip(item.photos(), cover = item.photos().firstOrNull())
+            if (item.photos().size > 1) Text("旧照片已保留，可在编辑页确认仅保留一张。", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = edit, enabled = !busy) { Text("编辑资料 / 补拍照片") }
         }
         PaperDisclosure("说明书原文", leaflet, { leaflet = !leaflet }) {
@@ -129,7 +130,10 @@ private fun StockDialog(item: MedicineEntity, busy: Boolean, dismiss: () -> Unit
 }
 
 @Composable
-fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) -> Unit)? = null) {
+fun PhotoStrip(
+    photos: List<String>, enabled: Boolean = true, onCrop: ((String) -> Unit)? = null,
+    cover: String? = null, onSetCover: ((String) -> Unit)? = null
+) {
     var enlarged by rememberSaveable { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         photos.forEachIndexed { index, photo ->
@@ -139,7 +143,10 @@ fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) 
                     modifier = Modifier.size(156.dp).clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant).clickable { enlarged = photo }
                 )
-                Text("照片 ${index + 1} · 点击放大", style = MaterialTheme.typography.labelSmall)
+                Text(if (photo == cover) "药品图 · 点击放大" else "照片 ${index + 1} · 点击放大", style = MaterialTheme.typography.labelSmall)
+                if (onSetCover != null) TextButton(onClick = { onSetCover(photo) }, enabled = enabled && photo != cover) {
+                    Text(if (photo == cover) "已选为药品图" else "设为药品图")
+                }
                 if (onCrop != null) TextButton(onClick = { onCrop(photo) }, enabled = enabled) { Text("框选重识别") }
             }
         }

@@ -90,7 +90,7 @@ data class MedicineInformation(
 }
 
 fun medicineInformationFieldError(field: MedicineInformationField, value: String): String? = when {
-    value.trim().length > field.maxLength -> "${field.label}最多 ${field.maxLength} 个字符，请精简或保留说明书照片"
+    value.trim().length > field.maxLength -> "${field.label}最多 ${field.maxLength} 个字符，请精简填写并另行保管完整说明书"
     field.singleLine && value.trim().any { it.isISOControl() || it == '\u2028' || it == '\u2029' } -> "${field.label}不能包含换行或控制字符"
     else -> null
 }
