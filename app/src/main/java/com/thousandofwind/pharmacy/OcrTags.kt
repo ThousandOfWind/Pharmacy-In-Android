@@ -8,7 +8,7 @@ fun suggestOcrTags(candidates: OcrCandidates): List<OcrTagSuggestion> {
     fun addFrom(text: String, rules: List<Pair<String, Regex>>) {
         // Prefer missing a suggestion over turning a prohibition or negative indication into a tag.
         val affirmative = text.split(Regex("[。；;！？!?\\n]"))
-            .map(String::trim).filter { it.isNotBlank() && !Regex("不|未|无|無|非|否|禁|忌|勿|避免").containsMatchIn(it) }
+            .map(String::trim).filter { it.isNotBlank() && !Regex("不|未|无|無|非|否|免|禁|忌|勿|避免").containsMatchIn(it) }
         rules.forEach { (tag, pattern) ->
             affirmative.firstOrNull { pattern.containsMatchIn(it) }?.let { evidence ->
                 if (output.none { it.tag == tag }) output += OcrTagSuggestion(tag, evidence)

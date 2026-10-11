@@ -149,6 +149,7 @@ class OcrRulesTest {
         assertTrue(extractCandidates("感冒止痛片\n【禁忌】过敏性鼻炎\n【注意事项】不得口服，需冷藏").tagSuggestions.isEmpty())
         assertTrue(extractCandidates("【适应症】不用于感冒。\n【用法用量】禁止外用。\n【贮藏】不需冷藏。").tagSuggestions.isEmpty())
         assertTrue(extractCandidates("【用法用量】非口服，外用。").tagSuggestions.isEmpty())
+        assertTrue(extractCandidates("【贮藏】免冷藏。").tagSuggestions.isEmpty())
         val cold = extractCandidates("【贮藏】冷藏保存。\n【用法用量】外用。")
         assertEquals(listOf("外用", "需冷藏"), cold.tagSuggestions.map { it.tag })
         val draft = MedicineDraft(candidates = c, reviewed = true, tags = listOf("自定义"))
