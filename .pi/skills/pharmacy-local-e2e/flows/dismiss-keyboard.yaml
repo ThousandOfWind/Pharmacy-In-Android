@@ -1,0 +1,9 @@
+appId: com.thousandofwind.pharmacy
+---
+- runFlow:
+    when:
+      visible:
+        id: 'android:id/input_method_nav_back'
+    commands:
+      - tapOn:
+          id: 'android:id/input_method_nav_back'

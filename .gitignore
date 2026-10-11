@@ -10,3 +10,4 @@
 **/build/
 *.keystore
 *.jks
+/.pi/pharmacy-e2e.local.json
