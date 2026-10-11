@@ -26,7 +26,8 @@ import coil.compose.AsyncImage
 @Composable
 fun CabinetScreen(
     state: UiState, search: (String) -> Unit, filter: (CabinetFilter) -> Unit, filterTag: (String?) -> Unit,
-    add: () -> Unit, open: (MedicineEntity) -> Unit, openGroup: (CabinetGroup) -> Unit
+    add: () -> Unit, open: (MedicineEntity) -> Unit, openGroup: (CabinetGroup) -> Unit,
+    importBackup: () -> Unit, canImport: Boolean
 ) {
     val rows = state.visible
     val groups = cabinetGroups(rows)
@@ -55,6 +56,7 @@ fun CabinetScreen(
                     Text("拍照或手动记下家里的药，下次需要时，就好找了。", color = PaperPalette.Muted)
                     PenButton("添加第一件药品", add, icon = InkSymbol.PLUS)
                     Text("从一个药名开始，其他慢慢补充。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                    TextButton(onClick = importBackup, enabled = canImport) { Text("从旧手机导入药箱") }
                 }
             }
             else -> {

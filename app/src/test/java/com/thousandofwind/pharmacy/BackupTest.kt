@@ -71,6 +71,21 @@ class BackupTest {
         } finally { folder.deleteRecursively() }
     }
 
+    @Test fun exportedCopyMustMatchExactBytesBeforeBeingMarkedVerified() {
+        val folder = Files.createTempDirectory("pharmacy-backup-copy").toFile()
+        try {
+            // Larger than the streaming buffer; covers same-size corruption as well as truncation/trailing data.
+            val bytes = ByteArray(128 * 1024 + 7) { (it % 251).toByte() }
+            val expected = folder.resolve("backup.zip").apply { writeBytes(bytes) }
+            verifyBackupCopy(ByteArrayInputStream(bytes), expected)
+            rejected { verifyBackupCopy(ByteArrayInputStream(bytes.copyOf(bytes.size - 1)), expected) }
+            rejected { verifyBackupCopy(ByteArrayInputStream(bytes + byteArrayOf(0)), expected) }
+            val changed = bytes.copyOf().apply { this[lastIndex] = (this[lastIndex] + 1).toByte() }
+            rejected { verifyBackupCopy(ByteArrayInputStream(changed), expected) }
+            rejected { verifyBackupCopy(ByteArrayInputStream(byteArrayOf()), expected) }
+        } finally { folder.deleteRecursively() }
+    }
+
     @Test fun manifestBoundsRejectUnsafeCountsAndKeepUnknownStockSeparateFromZero() {
         val unknown = BackupRecord("药品", quantity = null)
         assertNull(decodeBackup(encodeBackup(BackupDocument(1, listOf(unknown)))).records.single().quantity)

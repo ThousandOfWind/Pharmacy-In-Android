@@ -2,11 +2,13 @@ package com.thousandofwind.pharmacy
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -29,7 +31,9 @@ private fun BackupRecord.entity(paths: List<String>, restoredGroup: Pair<String,
     )
 }
 
-data class BackupPreview(val records: Int, val photos: Int, val newRecords: Int, val duplicates: Int, val createdAt: Long)
+data class BackupPreview(val records: Int, val photos: Int, val newRecords: Int, val duplicates: Int, val createdAt: Long, val groups: Int, val existingRecords: Int)
+data class BackupExportResult(val records: Int, val photos: Int, val bytes: Long, val fileName: String, val verified: Boolean)
+data class BackupRestoreResult(val added: Int, val duplicates: Int, val photos: Int)
 internal data class PendingBackup(val directory: File, val checked: CheckedBackup)
 
 class BackupStore(private val context: Context) {
@@ -89,10 +93,11 @@ class BackupStore(private val context: Context) {
     }
 
     /** First make and validate a local snapshot. Only then write the user-selected destination. */
-    suspend fun export(destination: Uri): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    suspend fun export(destination: Uri): BackupExportResult = withContext(Dispatchers.IO) {
         val work = stage()
         try {
             val items = dao.snapshot()
+            require(items.isNotEmpty()) { "药箱为空，没有已保存的药品可导出" }
             require(items.size <= MAX_BACKUP_RECORDS) { "记录超过 2000 条备份上限" }
             val files = linkedMapOf<String, File>()
             var total = 0L
@@ -117,7 +122,16 @@ class BackupStore(private val context: Context) {
             require(archive.length() <= MAX_BACKUP_BYTES) { "备份文件超过 512 MiB 上限" }
             val output = requireNotNull(context.contentResolver.openOutputStream(destination, "wt")) { "无法写入选择的位置" }
             output.use { out -> archive.inputStream().use { it.copyTo(out) } }
-            records.size to files.size
+            // Some document providers can write but cannot immediately read back. Never call that verified.
+            val verified = try {
+                context.contentResolver.openInputStream(destination)?.use { verifyBackupCopy(it, archive); true } ?: false
+            } catch (_: IOException) { false } catch (_: SecurityException) { false }
+            val fileName = runCatching {
+                context.contentResolver.query(destination, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull().orEmpty().ifBlank { "文件名无法读取，请在所选位置查找 ZIP 备份" }
+            BackupExportResult(records.size, files.size, archive.length(), fileName, verified)
         } finally { cleanup(work) }
     }
 
@@ -156,11 +170,12 @@ class BackupStore(private val context: Context) {
         val known = fingerprints(items, photoHashes(items))
         val incoming = incomingRecords(pending, items)
         val added = incoming.count { known.add(backupFingerprint(it)) }
-        BackupPreview(incoming.size, pending.checked.photos.size, added, incoming.size - added, pending.checked.document.createdAt)
+        BackupPreview(incoming.size, pending.checked.photos.size, added, incoming.size - added, pending.checked.document.createdAt,
+            incoming.map { it.groupKey }.filter(String::isNotBlank).distinct().size, items.size)
     }
 
     /** No existing row is updated/deleted. DB insertion is atomic; failed imported photos are removed. */
-    internal suspend fun restore(pending: PendingBackup): Int = withContext(Dispatchers.IO + NonCancellable) {
+    internal suspend fun restore(pending: PendingBackup): BackupRestoreResult = withContext(Dispatchers.IO + NonCancellable) {
         val ownedPhotos = mutableMapOf<String, File>()
         val usedPhotos = mutableSetOf<String>()
         var committed = false
@@ -187,7 +202,7 @@ class BackupStore(private val context: Context) {
                 fresh.size
             }
             committed = true
-            count
+            BackupRestoreResult(count, pending.checked.document.records.size - count, usedPhotos.size)
         } finally {
             ownedPhotos.filterKeys { !committed || it !in usedPhotos }.values.forEach { it.delete() }
         }
