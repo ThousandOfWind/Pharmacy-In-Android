@@ -70,13 +70,18 @@ fun extractCandidates(text: String): OcrCandidates {
     val warnings = mutableListOf<String>()
     var information = MedicineInformation()
     fieldsByLabel.values.toSet().forEach { field ->
-        val values = sections.filter { fieldsByLabel[it.label] == field && it.text.isNotBlank() }.map { it.text }.distinct()
+        val matches = sections.filter { fieldsByLabel[it.label] == field && it.text.isNotBlank() }
+        val values = matches.map { it.text }.distinct()
+        val conflicting = if (field == MedicineInformationField.SPECIFICATION)
+            matches.groupBy { it.label }.values.any { group -> group.map { it.text }.distinct().size > 1 }
+        else values.size > 1
         val value = when {
-            field == MedicineInformationField.SPECIFICATION && values.size > 1 -> values.joinToString("；")
+            conflicting -> ""
+            field == MedicineInformationField.SPECIFICATION -> values.joinToString("；")
             values.size == 1 -> values.single()
             else -> ""
         }
-        if (values.size > 1 && field != MedicineInformationField.SPECIFICATION) warnings += "${field.label}出现多个不同内容，请核对原图"
+        if (conflicting) warnings += "${field.label}出现多个不同内容，请核对原图"
         if (value.isNotBlank()) {
             if (medicineInformationFieldError(field, value) == null) information = information.withValue(field, value)
             else warnings += "${field.label}内容需核对，未放入候选，请查看原文"
