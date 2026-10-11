@@ -31,6 +31,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.thousandofwind.pharmacy.ai.AiScreen
+import com.thousandofwind.pharmacy.ai.AiViewModel
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MedicineViewModel> {
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val updateViewModel by viewModels<AppUpdateViewModel>()
+    private val aiViewModel by viewModels<AiViewModel>()
     private val backupViewModel by viewModels<BackupViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,14 +52,14 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = true
         }
         setContent {
-            PharmacyTheme { MedicineApp(viewModel, updateViewModel, backupViewModel) }
+            PharmacyTheme { MedicineApp(viewModel, updateViewModel, backupViewModel, aiViewModel) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel, backupViewModel: BackupViewModel) {
+fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel, backupViewModel: BackupViewModel, aiViewModel: AiViewModel) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val backupState by backupViewModel.uiState.collectAsState()
@@ -64,6 +67,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     val screenState = rememberSaveableStateHolder()
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var showUpdate by rememberSaveable { mutableStateOf(false) }
+    var showAi by rememberSaveable { mutableStateOf(false) }
     var showMore by rememberSaveable { mutableStateOf(false) }
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showGroupLink by rememberSaveable { mutableStateOf(false) }
@@ -136,6 +140,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         Box {
                             TextButton(onClick = { showMore = true }) { InkIcon(InkSymbol.MORE); Text("更多") }
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
+                                DropdownMenuItem(text = { Text("AI 助手") }, onClick = { showMore = false; showAi = true })
                                 DropdownMenuItem(text = { Text("检查更新") }, onClick = { showMore = false; showUpdate = true })
                                 DropdownMenuItem(text = { Text("备份与恢复") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
                                     onClick = { showMore = false; showBackup = true })
@@ -204,6 +209,11 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
             }
         }
     }
+    if (showAi) AiScreen(aiViewModel, dismiss = { showAi = false }, openMedicine = { id ->
+        aiViewModel.stop()
+        state.medicines.firstOrNull { it.id == id }?.let { showAi = false; viewModel.open(it) }
+            ?: run { showAi = false; viewModel.report("这条库存已不在药箱中，请重新查询") }
+    })
     if (showGroupLink) state.selected?.let { item ->
         GroupLinkDialog(item, state.medicines, state.busy, { showGroupLink = false }) { target, name -> viewModel.linkGroup(item, target, name) }
     }

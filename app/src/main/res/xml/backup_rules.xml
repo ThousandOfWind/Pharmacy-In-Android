@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="database" path="azure-ai.db" />
+    <exclude domain="database" path="azure-ai.db-wal" />
+    <exclude domain="database" path="azure-ai.db-shm" />
+    <exclude domain="database" path="azure-ai.db-journal" />
+    <exclude domain="sharedpref" path="azure-ai-settings.xml" />
+    <exclude domain="sharedpref" path="azure-ai-settings.xml.bak" />
+</full-backup-content>
