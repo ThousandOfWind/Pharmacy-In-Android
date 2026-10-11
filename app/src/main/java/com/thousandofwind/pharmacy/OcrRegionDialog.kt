@@ -16,6 +16,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.graphics.asImageBitmap
@@ -87,7 +90,20 @@ fun OcrRegionDialog(photo: String, busy: Boolean, dismiss: () -> Unit, recognize
                         Box(Modifier.size(width, height)) {
                             Image(image.asImageBitmap(), "原始照片，拖动框选文字", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                             Canvas(Modifier.fillMaxSize().semantics {
-                                stateDescription = if (region?.valid() == true) "已框选文字区域" else "未框选文字区域"
+                                contentDescription = "文字选区，可通过无障碍操作创建、移动或缩放"
+                                stateDescription = region?.takeIf { it.valid() }?.let {
+                                    "已框选，左${(it.left * 100).toInt()}%，上${(it.top * 100).toInt()}%，右${(it.right * 100).toInt()}%，下${(it.bottom * 100).toInt()}%"
+                                } ?: "未框选文字区域"
+                                if (!busy) customActions = listOf(
+                                    CustomAccessibilityAction("创建居中选区") { region = OcrRegion(.2f, .35f, .8f, .65f); true },
+                                    CustomAccessibilityAction("选区向左") { region = region?.move(-.05f, 0f); true },
+                                    CustomAccessibilityAction("选区向右") { region = region?.move(.05f, 0f); true },
+                                    CustomAccessibilityAction("选区向上") { region = region?.move(0f, -.05f); true },
+                                    CustomAccessibilityAction("选区向下") { region = region?.move(0f, .05f); true },
+                                    CustomAccessibilityAction("扩大选区") { region = region?.resize(.05f); true },
+                                    CustomAccessibilityAction("缩小选区") { region = region?.resize(-.05f); true },
+                                    CustomAccessibilityAction("清除选区") { region = null; true }
+                                )
                             }.pointerInput(photo, busy) {
                                 if (!busy) detectDragGestures(
                                     onDragStart = { start = it; region = null },

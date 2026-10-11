@@ -8,6 +8,22 @@ data class OcrRegion(val left: Float, val top: Float, val right: Float, val bott
     fun valid(): Boolean = listOf(left, top, right, bottom).all { it.isFinite() && it in 0f..1f } &&
         right - left >= .01f && bottom - top >= .01f
 
+    fun move(dx: Float, dy: Float): OcrRegion {
+        val x = dx.coerceIn(-left, 1f - right)
+        val y = dy.coerceIn(-top, 1f - bottom)
+        return OcrRegion(left + x, top + y, right + x, bottom + y)
+    }
+
+    fun resize(delta: Float): OcrRegion {
+        val cx = (left + right) / 2
+        val cy = (top + bottom) / 2
+        val width = (right - left + delta).coerceIn(.05f, 1f)
+        val height = (bottom - top + delta).coerceIn(.05f, 1f)
+        val x = (cx - width / 2).coerceIn(0f, 1f - width)
+        val y = (cy - height / 2).coerceIn(0f, 1f - height)
+        return OcrRegion(x, y, x + width, y + height)
+    }
+
     companion object {
         fun between(x1: Float, y1: Float, x2: Float, y2: Float) = OcrRegion(
             min(x1, x2).coerceIn(0f, 1f), min(y1, y2).coerceIn(0f, 1f),
