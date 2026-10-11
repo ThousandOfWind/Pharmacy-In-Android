@@ -45,7 +45,7 @@ private fun sections(text: String): List<Section> {
     }
     text.lines().forEach { original ->
         val value = original.trim()
-        val bracket = Regex("^[【\\[]([^】\\]]{1,20})[】\\]]\\s*[:：]?\\s*(.*)$").find(value)
+        val bracket = Regex("^[【\\[]([^】\\]]+)[】\\]]\\s*[:：]?\\s*(.*)$").find(value)
         val colon = Regex("^([^:：]{1,20})[:：]\\s*(.*)$").find(value)
         val bare = key(value).takeIf { it in knownLabels }
         val expiryHeading = Regex("^(有效期至|有效日期|失效日期|失效期|保质期至|EXP\\b)\\s*[:：]?\\s*(.*)$", RegexOption.IGNORE_CASE).find(value)
@@ -58,7 +58,7 @@ private fun sections(text: String): List<Section> {
             val initial = expiryHeading?.groupValues?.get(2) ?: bracket?.groupValues?.get(2) ?: colon?.groupValues?.get(2) ?: ""
             if (initial.isNotBlank()) lines += initial
             // Unbracketed inline labels have no trustworthy paragraph boundary on a box.
-            if (colon != null && bracket == null && expiryHeading == null) flush()
+            if (colon != null && bracket == null && expiryHeading == null && initial.isNotBlank()) flush()
         } else if (active != null) lines += original
     }
     flush()

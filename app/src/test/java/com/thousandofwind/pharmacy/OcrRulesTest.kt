@@ -15,7 +15,7 @@ class OcrRulesTest {
             【注意事项】
             1.儿童请咨询医师。
             2.不要擅自增加剂量。
-            【未知章节】不应并入注意事项
+            【这是一个超过二十个字符的未识别章节标题也应当终止上一段】不应并入注意事项
             【贮藏】不超过0°℃（OCR原文）
             【有效期】30个月
             【说明书修订日期】2020年12月30日
@@ -70,5 +70,12 @@ class OcrRulesTest {
         assertEquals("3", filled.quantity)
         assertEquals("盒", filled.unit)
         assertFalse(filled.reviewed)
+        val merged = mergeRegionCandidates(c, OcrCandidates(expiry = "2029-06"), OCR_TARGET_EXPIRY)
+        assertEquals("候选名", merged.name)
+        assertEquals("2029-06", merged.expiry)
+        assertEquals(c.information, merged.information)
+        assertEquals(merged, mergeRegionCandidates(merged, OcrCandidates(), OCR_TARGET_NAME))
+        assertNull(appendOcrText("x".repeat(MAX_OCR_TEXT), "new"))
+        assertEquals("old\n\nnew", appendOcrText("old", "new"))
     }
 }

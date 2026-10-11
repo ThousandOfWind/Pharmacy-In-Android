@@ -304,13 +304,12 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 updateDraft { copy(photos = photos + localPhoto) }
                 val text = recognize(Uri.parse(localPhoto))
                 if (generation != scanGeneration) return@launch
+                if (text.isBlank()) { report("未识别到文字。照片已保留，可补拍或手动填写。"); return@launch }
+                val combined = appendOcrText(session.value.draft.rawText, text)
+                if (combined == null) { report("累计识别原文超过 50000 字符，照片已保留；本次不生成候选，避免丢失核对来源。"); return@launch }
                 val candidates = extractCandidates(text)
-                updateDraft { copy(
-                    rawText = listOf(rawText, text).filter(String::isNotBlank).joinToString("\n\n").take(50000),
-                    candidates = candidates, reviewed = false
-                ) }
-                if (text.isBlank()) report("未识别到文字。照片已保留，可补拍或手动填写。")
-                else report("识别完成，请对照照片核对；候选内容不会自动覆盖填写")
+                updateDraft { copy(rawText = combined, candidates = candidates, reviewed = false) }
+                report("识别完成，请对照照片核对；候选内容不会自动覆盖填写")
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (generation == scanGeneration) report("照片读取或识别失败，可补拍或手动填写")
@@ -336,12 +335,13 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 }
                 val text = recognize(InputImage.fromBitmap(cropped, 0))
                 if (generation != scanGeneration) return@launch
-                updateDraft { copy(
-                    rawText = listOf(rawText, text).filter(String::isNotBlank).joinToString("\n\n").take(50000),
-                    candidates = regionCandidates(text, target), reviewed = false
-                ) }
-                report(if (text.isBlank()) "框选中未识别到文字，请重画或补拍" else "框选识别完成，请对照原图核对后采用")
-                done(text.isNotBlank())
+                if (text.isBlank()) { report("框选中未识别到文字，原候选已保留，请重画或补拍"); done(false); return@launch }
+                val combined = appendOcrText(session.value.draft.rawText, text)
+                if (combined == null) { report("累计识别原文超过 50000 字符，本次结果未采用；原图和原候选保留。"); done(false); return@launch }
+                val incoming = regionCandidates(text, target)
+                updateDraft { copy(rawText = combined, candidates = mergeRegionCandidates(candidates, incoming, target), reviewed = false) }
+                report("框选识别完成，请对照原图核对后采用")
+                done(true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (generation == scanGeneration) { report("框选识别失败，请重试或补拍"); done(false) }
