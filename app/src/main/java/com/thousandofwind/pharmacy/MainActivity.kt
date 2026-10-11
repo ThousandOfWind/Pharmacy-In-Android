@@ -182,7 +182,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     }
     if (showAi) AiScreen(aiViewModel, dismiss = { showAi = false }, openMedicine = { id ->
         state.medicines.firstOrNull { it.id == id }?.let { aiViewModel.stop(); showAi = false; viewModel.open(it) }
-            ?: viewModel.report("这条库存已不在药箱中，请重新查询")
+            ?: run { showAi = false; viewModel.report("这条库存已不在药箱中，请重新查询") }
     })
     if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
     if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {

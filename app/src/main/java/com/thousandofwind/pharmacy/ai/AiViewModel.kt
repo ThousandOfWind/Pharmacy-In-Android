@@ -34,7 +34,8 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                 val hasKey = withContext(Dispatchers.IO) { credentials.read(config.endpoint)?.isNotBlank() == true }
                 state.update { it.copy(config = config, hasKey = hasKey) }
                 sessions.observeSessions().collect { rows -> state.update { it.copy(sessions = rows) } }
-            } catch (_: Exception) { state.update { it.copy(error = "AI 本地存储无法读取，请检查连接设置；原药箱不受影响") } }
+            } catch (e: CancellationException) { throw e }
+              catch (_: Exception) { state.update { it.copy(error = "AI 本地存储无法读取，请检查连接设置；原药箱不受影响") } }
         }
     }
     fun input(value: String) { if (!state.value.busy) state.update { it.copy(input = value.take(MAX_QUESTION)) } }
@@ -42,6 +43,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     fun allowCabinet(value: Boolean) { if (!state.value.busy) state.update { it.copy(allowCabinet = value) } }
     fun dismissError() { state.update { it.copy(error = null) } }
     fun stop() {
+        if (task?.isActive != true || !state.value.busy) return
         task?.cancel()
         // Stay busy until the old coroutine settles, so its finally cannot clobber a new run.
         state.update { it.copy(status = "已停止；未完成回答不会保存", partial = "") }
@@ -54,7 +56,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         if (enteredKey.isBlank() && (!state.value.hasKey || clean.endpoint != state.value.config.endpoint)) {
             state.update { it.copy(error = "首次连接或更换资源地址时，请输入该资源的 API Key") }; return
         }
-        if (enteredKey.length > 4096 || enteredKey.any(Char::isISOControl)) { state.update { it.copy(error = "API Key 格式错误") }; return }
+        if (enteredKey.length > 4096 || enteredKey.any { it.code !in 33..126 }) { state.update { it.copy(error = "API Key 格式错误") }; return }
         state.update { it.copy(busy = true, error = null) }
         task = viewModelScope.launch {
             try {
@@ -84,6 +86,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         state.update { it.copy(selected = session, turns = emptyList(), partial = "", input = "", error = null, status = "", allowCabinet = false) }
         if (session != null) turnsJob = viewModelScope.launch {
             try { sessions.observeTurns(session.id).collect { rows -> state.update { it.copy(turns = rows.map { row -> Json.decodeFromString<ChatTurn>(row.turnJson) }) } } }
+            catch (e: CancellationException) { throw e }
             catch (_: Exception) { state.update { it.copy(error = "会话读取失败，请新建会话") } }
         }
     }

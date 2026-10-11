@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -133,6 +135,7 @@ private fun ConnectionDialog(state: AiUiState, viewModel: AiViewModel, dismiss: 
                 if (protocol == AzureApi.DEPLOYMENT) PaperField(version, { version = it }, label = "API version", enabled = !state.busy)
                 Text("API Key${if (state.hasKey) "（已保存；留空保留，更换资源必须填写新 Key）" else ""}")
                 OutlinedTextField(key, { key = it }, singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrect = false),
                     label = { Text("API Key") }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
                 Text("Key 仅在 Android Keystore 加密后保存，不进入会话、药箱备份、日志或截图。", style = MaterialTheme.typography.bodySmall)
                 PenButton("保存连接", { viewModel.save(AzureConnection(endpoint, deployment, protocol, version), key) { key = ""; dismiss() } }, Modifier.fillMaxWidth(), enabled = !state.busy)

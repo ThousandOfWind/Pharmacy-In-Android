@@ -30,6 +30,7 @@ class AiCredentialStore(context: Context) {
         val payload = buildJsonObject { put("endpoint", endpoint); put("key", value) }.toString()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val bytes = cipher.iv + cipher.doFinal(payload.toByteArray(Charsets.UTF_8))
+        require(bytes.size in 29..8192) { "Credential payload exceeds storage limit" }
         val target = android.util.AtomicFile(file)
         val stream = target.startWrite()
         try { stream.write(bytes); target.finishWrite(stream) } catch (e: Exception) { target.failWrite(stream); throw e }
