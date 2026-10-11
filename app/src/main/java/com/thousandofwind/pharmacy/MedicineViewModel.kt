@@ -41,7 +41,9 @@ data class MedicineDraft(
     val photos: List<String> = emptyList(),
     val rawText: String = "",
     val candidates: OcrCandidates = OcrCandidates(),
-    val reviewed: Boolean = false
+    val reviewed: Boolean = false,
+    val tags: List<String> = emptyList(),
+    val tagInput: String = ""
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
@@ -50,6 +52,7 @@ data class MedicineDraft(
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
+        putStringArrayList("tags", ArrayList(tags)); putString("tagInput", tagInput)
     }
 
     companion object {
@@ -60,7 +63,8 @@ data class MedicineDraft(
                 it.getString("efficacy").orEmpty(), it.getString("notes").orEmpty(),
                 it.getStringArrayList("photos")?.toList().orEmpty(), it.getString("rawText").orEmpty(),
                 OcrCandidates(it.getString("candidateName").orEmpty(), it.getString("candidateExpiry").orEmpty(), it.getString("candidateEfficacy").orEmpty()),
-                it.getBoolean("reviewed")
+                it.getBoolean("reviewed"),
+                normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty()
             )
         } ?: MedicineDraft()
     }
@@ -74,7 +78,8 @@ data class Session(
     val draft: MedicineDraft = MedicineDraft(),
     val baseline: MedicineDraft = MedicineDraft(),
     val error: String? = null,
-    val highlightId: Long = 0
+    val highlightId: Long = 0,
+    val tag: String? = null
 )
 
 data class UiState(
@@ -86,9 +91,9 @@ data class UiState(
     val scanning: Boolean = false
 ) {
     val selected get() = medicines.firstOrNull { it.id == session.selectedId }
+    val availableTags get() = normalizeMedicineTags(medicines.flatMap { it.tags() }).sorted()
     val visible get() = medicines.filter { item ->
-        val query = session.search.trim()
-        (query.isEmpty() || listOf(item.name, item.efficacy, item.notes).any { it.contains(query, ignoreCase = true) }) &&
+        matchesMedicineTextAndTag(item.name, item.efficacy, item.notes, item.tags(), session.search, session.tag) &&
             when (session.filter) {
                 CabinetFilter.ALL -> true
                 CabinetFilter.SOON -> expiryStatus(item.expiryDate) == ExpiryStatus.SOON
@@ -109,7 +114,8 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         search = savedState["search"] ?: "",
         filter = runCatching { CabinetFilter.valueOf(savedState["filter"] ?: "ALL") }.getOrDefault(CabinetFilter.ALL),
         draft = MedicineDraft.fromBundle(savedState["draft"]),
-        baseline = MedicineDraft.fromBundle(savedState["baseline"])
+        baseline = MedicineDraft.fromBundle(savedState["baseline"]),
+        tag = savedState["tag"]
     ))
     private val busy = MutableStateFlow(false)
     private val scanning = MutableStateFlow(false)
@@ -143,11 +149,13 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         val value = session.value
         savedState["screen"] = value.screen.name; savedState["selectedId"] = value.selectedId
         savedState["search"] = value.search; savedState["filter"] = value.filter.name
+        savedState["tag"] = value.tag
         savedState["draft"] = value.draft.toBundle(); savedState["baseline"] = value.baseline.toBundle()
     }
 
     fun search(value: String) = change { copy(search = value, highlightId = 0) }
     fun filter(value: CabinetFilter) = change { copy(filter = value, highlightId = 0) }
+    fun filterTag(value: String?) = change { copy(tag = value, highlightId = 0) }
     fun open(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id) }
 
     fun beginNew() {
@@ -161,7 +169,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             id = item.id, name = item.name, expiry = item.expiryDate,
             quantity = item.remainingQuantity?.toString().orEmpty(), unit = item.quantityUnit,
             efficacy = item.efficacy, notes = item.notes, photos = item.photos(), rawText = item.ocrRawText,
-            reviewed = true
+            reviewed = true, tags = item.tags()
         )
         change { copy(screen = Screen.EDITOR, selectedId = item.id, draft = draft, baseline = draft, error = null) }
     }
@@ -186,7 +194,10 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
     fun save() {
         if (busy.value || scanning.value || !uiState.value.loaded || uiState.value.databaseError != null) return
         val draft = session.value.draft
+        // Include an unfinished custom entry so tapping Save never silently drops a typed tag.
+        val tags = normalizeMedicineTags(draft.tags + draft.tagInput)
         val error = formError(draft.name, draft.expiry, draft.quantity, draft.unit)
+            ?: medicineTagsError(tags)
             ?: if (draft.rawText.isNotBlank() && !draft.reviewed) "请先对照包装核对名称和有效期" else null
         if (error != null) { change { copy(error = error) }; return }
         busy.value = true
@@ -199,9 +210,10 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                     efficacy = draft.efficacy.trim(), notes = draft.notes.trim(),
                     remainingQuantity = draft.quantity.trim().toIntOrNull(), quantityUnit = draft.unit,
                     photoUri = draft.photos.firstOrNull().orEmpty(), photosJson = encodePhotos(draft.photos),
-                    ocrRawText = draft.rawText, createdAt = original?.createdAt ?: now, updatedAt = now
+                    ocrRawText = draft.rawText, createdAt = original?.createdAt ?: now, updatedAt = now,
+                    tagsJson = encodeTags(tags)
                 ))
-                change { copy(screen = Screen.CABINET, search = "", filter = CabinetFilter.ALL,
+                change { copy(screen = Screen.CABINET, search = "", filter = CabinetFilter.ALL, tag = null,
                     draft = MedicineDraft(), baseline = MedicineDraft(), error = null, highlightId = id) }
                 notices.send(UiNotice(if (draft.id == 0L) "已添加到药箱" else "药品资料已更新"))
             } catch (error: Exception) {
@@ -249,7 +261,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         viewModelScope.launch {
             try {
                 dao.upsert(item); removed = null
-                change { copy(search = "", filter = CabinetFilter.ALL, highlightId = item.id) }
+                change { copy(search = "", filter = CabinetFilter.ALL, tag = null, highlightId = item.id) }
                 notices.send(UiNotice("已恢复到药箱"))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error

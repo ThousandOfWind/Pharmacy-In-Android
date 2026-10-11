@@ -90,6 +90,7 @@ fun EditorScreen(
         QuantityFields(draft.quantity, draft.unit, !state.busy,
             { value -> update { copy(quantity = value) } }, { value -> update { copy(unit = value) } })
         Text("不填写代表未知，0 代表已用完。不同单位的余量不会相加。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        MedicineTagEditor(draft, state.availableTags, !state.busy, update)
         TextButton(onClick = { more = !more }) { Text(if (more) "收起更多信息" else "＋ 包装功效、备注（可选）") }
         if (more) {
             OutlinedTextField(

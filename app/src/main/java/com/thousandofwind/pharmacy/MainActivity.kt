@@ -127,7 +127,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (state.session.screen) {
-                Screen.CABINET -> CabinetScreen(state, viewModel::search, viewModel::filter, { showAdd = true }, viewModel::open)
+                Screen.CABINET -> CabinetScreen(state, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
                 Screen.EDITOR -> EditorScreen(state, viewModel::updateDraft, ::takePhoto, ::pickPhoto)
                 Screen.DETAIL -> state.selected?.let { item ->
                     DetailScreen(item, state.busy, { viewModel.edit(item) },
