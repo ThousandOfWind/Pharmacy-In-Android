@@ -21,6 +21,7 @@ private val fieldsByLabel = mapOf(
     "药品上市许可持有人/生产企业" to MedicineInformationField.MANUFACTURER,
     "药品上市许可持有人／生产企业" to MedicineInformationField.MANUFACTURER,
     "上市许可持有人/生产企业" to MedicineInformationField.MANUFACTURER,
+    "上市许可持有人／生产企业" to MedicineInformationField.MANUFACTURER,
     "批准文号" to MedicineInformationField.APPROVAL_NUMBER,
     "生产批号" to MedicineInformationField.BATCH_NUMBER, "产品批号" to MedicineInformationField.BATCH_NUMBER,
     "批号" to MedicineInformationField.BATCH_NUMBER,
@@ -123,7 +124,7 @@ private fun sections(text: String): List<Section> {
             if (singleValue && initial.isNotBlank()) flush()
         } else if (active == null && Regex("每[盒瓶板袋支]\\s*\\d+(?:\\.\\d+)?\\s*(?:粒|片|袋|支|毫升|ml|mL)(?:[。.]|[/／][盒瓶板袋支])?").matches(value)) {
             output += Section("包装", value)
-        } else if (active == null && Regex("[\\p{IsHan}·（）()]{4,60}(?:制药|药业|医药)[\\p{IsHan}·（）()]{0,20}公司").matches(value)) {
+        } else if (active == null && Regex("[\\p{IsHan}·（）()]{2,60}(?:制药|药业|医药)[\\p{IsHan}·（）()]{0,20}公司").matches(value)) {
             output += Section("生产厂家", value)
         } else if (active != null && value.isNotBlank()) {
             lines += original

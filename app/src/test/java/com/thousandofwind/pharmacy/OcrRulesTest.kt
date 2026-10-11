@@ -96,6 +96,10 @@ class OcrRulesTest {
         assertEquals("", extractCandidates("生产日期：\n有效期至：\n20260303\n20290228\n20300101").expiry)
         assertEquals("", regionCandidates("产品批号：20290228", OCR_TARGET_EXPIRY).expiry)
         assertEquals("示例药业有限公司", extractCandidates("生产企业 示例药业有限公司").information.manufacturer)
+        assertEquals("实际药业有限公司", extractCandidates("上市许可持有人／生产企业：实际药业有限公司").information.manufacturer)
+        listOf("齐鲁制药有限公司", "扬子江药业集团有限公司").forEach { company ->
+            assertEquals(company, extractCandidates(company).information.manufacturer)
+        }
         assertEquals("示例品牌", extractCandidates("品牌名称：\n示例品牌").information.brandName)
         assertEquals("", extractCandidates("新红康\n每日20粒\n一次0.25g").information.brandName)
         assertEquals("", extractCandidates("每日20粒\n一次0.25g").information.specification)
