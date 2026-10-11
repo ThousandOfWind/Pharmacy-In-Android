@@ -22,6 +22,20 @@ fun EditorScreen(
     scanRegion: (String, OcrRegion, String, (Boolean) -> Unit) -> Unit
 ) {
     val draft = state.session.draft
+    val cover = draft.coverPhoto.takeIf { it in draft.photos } ?: draft.photos.firstOrNull()
+    var confirmPhoto by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
+    confirmPhoto?.let { selected ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) confirmPhoto = null },
+            title = { Text("仅保留这张药品图？") },
+            text = { Text("成功保存后将清理这条记录的其他照片，之后无法查看或重新识别那些原图。填写资料与识别原文仍保留；取消编辑不会删除旧照片。") },
+            confirmButton = { TextButton(onClick = {
+                update { copy(coverPhoto = selected, keepExistingPhotos = false) }
+                confirmPhoto = null
+            }, enabled = !state.busy && !state.scanning) { Text("确认仅保留这张") } },
+            dismissButton = { TextButton(onClick = { confirmPhoto = null }, enabled = !state.busy) { Text("取消") } }
+        )
+    }
     var cropPhoto by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
     cropPhoto?.let { photo ->
         OcrRegionDialog(photo, state.scanning || state.busy, { cropPhoto = null }) { region, target ->
@@ -72,7 +86,19 @@ fun EditorScreen(
                 Text("药箱已有相同通用名、品牌、规格，关联到 ${related.groupName}")
             }
         }
-        if (draft.photos.isNotEmpty()) PhotoStrip(draft.photos, enabled = !state.scanning && !state.busy, onCrop = { cropPhoto = it })
+        if (draft.photos.isNotEmpty()) {
+            PhotoStrip(draft.photos, enabled = !state.scanning && !state.busy, onCrop = { cropPhoto = it },
+                cover = cover, onSetCover = { photo ->
+                    if (draft.keepExistingPhotos && state.session.baseline.photos.any { it != photo }) confirmPhoto = photo
+                    else update { copy(coverPhoto = photo) }
+                })
+            if (draft.keepExistingPhotos && state.session.baseline.photos.size > 1) {
+                Text("旧记录的多张照片仍保留，普通保存不会自动清理。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                TextButton(onClick = { confirmPhoto = cover }, enabled = !state.busy && !state.scanning) { Text("仅保留药品图（清理旧照片）") }
+            } else {
+                Text("核对并成功保存后，只保留选中的药品图，其余本次识别照片会清理。保存失败保留草稿；放弃编辑只清理本次新增照片。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+            }
+        }
         if (state.scanning) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("正在本地识别，已有填写不会被覆盖…", style = MaterialTheme.typography.bodySmall)

@@ -81,14 +81,23 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     var cameraUri by rememberSaveable { mutableStateOf("") }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success && cameraUri.isNotBlank()) viewModel.scanPhoto(Uri.parse(cameraUri))
-        else viewModel.report("未拍摄照片，可以重拍或手动填写")
+        val source = cameraUri.takeIf(String::isNotBlank)?.let(Uri::parse)
+        cameraUri = ""
+        if (success && source != null) viewModel.scanPhoto(source)
+        else {
+            source?.let { PhotoStore.deleteCameraCapture(context, it) }
+            viewModel.report("未拍摄照片，可以重拍或手动填写")
+        }
     }
     fun launchCamera() {
         runCatching {
             cameraUri = PhotoStore.cameraUri(context).toString()
             camera.launch(Uri.parse(cameraUri))
-        }.onFailure { viewModel.report("无法打开相机，请从相册选择或手动填写") }
+        }.onFailure {
+            cameraUri.takeIf(String::isNotBlank)?.let { PhotoStore.deleteCameraCapture(context, Uri.parse(it)) }
+            cameraUri = ""
+            viewModel.report("无法打开相机，请从相册选择或手动填写")
+        }
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) launchCamera()

@@ -48,7 +48,9 @@ data class MedicineDraft(
     val tags: List<String> = emptyList(),
     val tagInput: String = "",
     val information: MedicineInformation = MedicineInformation(),
-    val groupKey: String = "", val groupName: String = ""
+    val groupKey: String = "", val groupName: String = "",
+    val coverPhoto: String = "",
+    val keepExistingPhotos: Boolean = true
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
@@ -56,6 +58,7 @@ data class MedicineDraft(
         putString("quantity", quantity); putString("unit", unit)
         putString("efficacy", efficacy); putString("notes", notes)
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
+        putString("coverPhoto", coverPhoto); putBoolean("keepExistingPhotos", keepExistingPhotos)
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
         putStringArrayList("candidateNames", ArrayList(candidates.nameOptions))
@@ -84,7 +87,8 @@ data class MedicineDraft(
                 normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty(),
                 MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
                     info.withValue(field, it.getBundle("information")?.getString(field.column).orEmpty())
-                }, it.getString("groupKey").orEmpty(), it.getString("groupName").orEmpty()
+                }, it.getString("groupKey").orEmpty(), it.getString("groupName").orEmpty(),
+                it.getString("coverPhoto").orEmpty(), it.getBoolean("keepExistingPhotos", true)
             )
         } ?: MedicineDraft()
     }
@@ -232,7 +236,8 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             id = item.id, name = item.name, expiry = item.expiryDate,
             quantity = item.remainingQuantity?.toString().orEmpty(), unit = item.quantityUnit,
             efficacy = item.efficacy, notes = item.notes, photos = item.photos(), rawText = item.ocrRawText,
-            reviewed = true, tags = item.tags(), information = item.information, groupKey = item.groupKey, groupName = item.groupName
+            reviewed = true, tags = item.tags(), information = item.information, groupKey = item.groupKey, groupName = item.groupName,
+            coverPhoto = item.photos().firstOrNull().orEmpty()
         )
         change { copy(screen = Screen.EDITOR, selectedId = item.id, draft = draft, baseline = draft, error = null) }
     }
@@ -246,6 +251,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
 
     fun back() {
         if (busy.value) return
+        val discarded = unreferencedPhotos(session.value.draft.photos, session.value.baseline.photos)
         scanGeneration++
         scanning.value = false
         change {
@@ -257,11 +263,33 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             },
                 draft = MedicineDraft(), baseline = MedicineDraft(), error = null)
         }
+        viewModelScope.launch {
+            if (!cleanupPhotos(discarded)) report("已放弃修改；部分临时照片清理失败")
+        }
+    }
+
+    /** Recheck DB references under the write lock; never sweep unknown files or undoable records. */
+    private suspend fun cleanupPhotos(candidates: List<String>): Boolean {
+        if (candidates.isEmpty()) return true
+        return try {
+            db.withTransaction {
+                val protected = dao.snapshot().flatMap { it.photos() } + removed?.photos().orEmpty() +
+                    session.value.draft.photos + session.value.baseline.photos
+                withContext(Dispatchers.IO) {
+                    PhotoStore.deletePhotos(getApplication(), unreferencedPhotos(candidates, protected))
+                }
+            }
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            false // Cleanup failure must not turn a committed save into a reported save failure.
+        }
     }
 
     fun save() {
         if (busy.value || scanning.value || !uiState.value.loaded || uiState.value.databaseError != null) return
         val draft = session.value.draft
+        val baseline = session.value.baseline
+        val retained = retainedMedicinePhotos(draft.photos, baseline.photos, draft.coverPhoto, draft.keepExistingPhotos)
         // Include an unfinished custom entry so tapping Save never silently drops a typed tag.
         val tags = normalizeMedicineTags(draft.tags + draft.tagInput)
         val error = formError(draft.name, draft.expiry, draft.quantity, draft.unit)
@@ -278,13 +306,15 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                     id = draft.id, name = draft.name.trim(), expiryDate = draft.expiry.trim(),
                     efficacy = draft.efficacy.trim(), notes = draft.notes.trim(),
                     remainingQuantity = draft.quantity.trim().toIntOrNull(), quantityUnit = draft.unit,
-                    photoUri = draft.photos.firstOrNull().orEmpty(), photosJson = encodePhotos(draft.photos),
+                    photoUri = retained.firstOrNull().orEmpty(), photosJson = encodePhotos(retained),
                     ocrRawText = draft.rawText, createdAt = original?.createdAt ?: now, updatedAt = now,
                     tagsJson = encodeTags(tags), information = draft.information.trimmed(), groupKey = draft.groupKey, groupName = draft.groupName
                 ))
                 change { copy(screen = Screen.CABINET, search = "", filter = CabinetFilter.ALL, tag = null,
                     draft = MedicineDraft(), baseline = MedicineDraft(), error = null, highlightId = id) }
-                notices.send(UiNotice(if (draft.id == 0L) "已添加到药箱" else "药品资料已更新"))
+                val cleaned = cleanupPhotos(unreferencedPhotos(draft.photos + baseline.photos, retained))
+                val message = if (draft.id == 0L) "已添加到药箱" else "药品资料已更新"
+                notices.send(UiNotice(message + if (cleaned) "" else "；部分临时照片清理失败"))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 change { copy(error = "保存失败，填写内容已保留，请重试") }
@@ -342,21 +372,26 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
     fun report(text: String) { viewModelScope.launch { notices.send(UiNotice(text)) } }
 
     fun scanPhoto(source: Uri) {
-        if (scanning.value || busy.value || session.value.screen != Screen.EDITOR) return
-        if (session.value.draft.photos.size >= 12) { report("每条记录最多保存 12 张照片"); return }
+        if (scanning.value || busy.value || session.value.screen != Screen.EDITOR || session.value.draft.photos.size >= 12) {
+            if (session.value.draft.photos.size >= 12) report("一次录入最多使用 12 张照片，请先核对并保存")
+            viewModelScope.launch(Dispatchers.IO) { PhotoStore.deleteCameraCapture(getApplication(), source) }
+            return
+        }
         scanning.value = true
         val generation = ++scanGeneration
         viewModelScope.launch {
+            var imported: String? = null
             try {
                 val context = getApplication<Application>()
                 val localPhoto = withContext(Dispatchers.IO) { PhotoStore.importPhoto(context, source) }
+                imported = localPhoto
                 if (generation != scanGeneration) return@launch
-                updateDraft { copy(photos = photos + localPhoto) }
+                updateDraft { copy(photos = photos + localPhoto, coverPhoto = coverPhoto.ifBlank { photos.firstOrNull() ?: localPhoto }) }
                 val text = recognize(Uri.parse(localPhoto))
                 if (generation != scanGeneration) return@launch
-                if (text.isBlank()) { report("未识别到文字。照片已保留，可补拍或手动填写。"); return@launch }
+                if (text.isBlank()) { report("未识别到文字。照片留在本次草稿中，可选为药品图、补拍或手动填写。"); return@launch }
                 val combined = appendOcrText(session.value.draft.rawText, text)
-                if (combined == null) { report("累计识别原文超过 50000 字符，照片已保留；本次不生成候选，避免丢失核对来源。"); return@launch }
+                if (combined == null) { report("累计识别原文超过 50000 字符，照片留在本次草稿中；本次不生成候选，避免丢失核对来源。"); return@launch }
                 val candidates = extractCandidates(text)
                 updateDraft { copy(rawText = combined, candidates = mergePhotoCandidates(this.candidates, candidates), reviewed = false) }
                 report("识别完成，请对照照片核对；候选内容不会自动覆盖填写")
@@ -364,6 +399,8 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 if (error is CancellationException) throw error
                 if (generation == scanGeneration) report("照片读取或识别失败，可补拍或手动填写")
             } finally {
+                if (generation != scanGeneration) imported?.let { cleanupPhotos(listOf(it)) }
+                withContext(Dispatchers.IO) { PhotoStore.deleteCameraCapture(getApplication(), source) }
                 if (generation == scanGeneration) scanning.value = false
             }
         }
