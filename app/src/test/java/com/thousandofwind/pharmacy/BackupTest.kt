@@ -61,6 +61,10 @@ class BackupTest {
             val manifest = encodeBackup(BackupDocument(1, listOf(BackupRecord("药品", photos = listOf(hash)))))
             rejected { read(archive("../outside" to image, "cabinet.bin" to manifest)) }
             rejected { read(archive("cabinet.bin" to manifest)) }
+            val complete = archive("cabinet.bin" to manifest, photoEntry(hash) to image)
+            val central = complete.indices.first { i -> i + 3 < complete.size && complete[i] == 0x50.toByte() && complete[i+1] == 0x4b.toByte() && complete[i+2] == 0x01.toByte() && complete[i+3] == 0x02.toByte() }
+            rejected { read(complete.copyOf(central)) }
+            rejected { read(complete.copyOf(complete.size - 10)) }
             rejected { read(archive("cabinet.bin" to manifest, photoEntry(hash) to byteArrayOf(2, 3))) }
             rejected { photoEntry("../outside") }
             assertFalse(requireNotNull(folder.parentFile).resolve("outside").exists())

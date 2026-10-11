@@ -6,6 +6,7 @@ import java.io.OutputStream
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 
 private const val MANIFEST_ENTRY = "cabinet.bin"
@@ -15,11 +16,34 @@ data class CheckedBackup(val document: BackupDocument, val photos: Map<String, F
 /** Streams only exact named entries into a private staging directory, never ZIP paths. */
 fun readBackupArchive(input: InputStream, staging: File): CheckedBackup {
     require(staging.isDirectory && staging.listFiles().orEmpty().isEmpty()) { "备份暂存目录不可用" }
+    // ZipInputStream alone accepts local entries with a missing ZIP footer. Validate the directory too.
+    val archive = File(staging, "archive.zip")
+    input.use { source ->
+        archive.outputStream().use { out ->
+            val buffer = ByteArray(64 * 1024); var compressed = 0L
+            while (true) {
+                val count = source.read(buffer); if (count == -1) break
+                compressed += count; require(compressed <= MAX_BACKUP_BYTES) { "备份文件超过大小限制" }
+                out.write(buffer, 0, count)
+            }
+        }
+    }
+    val directoryNames = ZipFile(archive).use { zip ->
+        val names = mutableSetOf<String>()
+        val entries = zip.entries()
+        while (entries.hasMoreElements()) {
+            val entry = entries.nextElement()
+            require(!entry.isDirectory && names.add(entry.name)) { "备份目录重复或无效" }
+            require(entry.name == MANIFEST_ENTRY || Regex("photos/[0-9a-f]{64}\\.bin").matches(entry.name)) { "备份目录含不支持的条目" }
+            require(names.size <= MAX_BACKUP_PHOTOS + 1) { "备份目录条目过多" }
+        }
+        names
+    }
     var total = 0L
     var manifest: ByteArray? = null
     val photos = linkedMapOf<String, File>()
     val names = hashSetOf<String>()
-    ZipInputStream(input).use { zip ->
+    ZipInputStream(archive.inputStream()).use { zip ->
         while (true) {
             val entry = zip.nextEntry ?: break
             require(!entry.isDirectory && names.add(entry.name)) { "备份含有重复或不支持的条目" }
@@ -49,6 +73,7 @@ fun readBackupArchive(input: InputStream, staging: File): CheckedBackup {
             zip.closeEntry() // Also validates the ZIP CRC; truncation is rejected.
         }
     }
+    require(names == directoryNames) { "备份条目与ZIP目录不一致" }
     val document = decodeBackup(requireNotNull(manifest) { "备份缺少药品清单" })
     val referenced = document.records.flatMap { it.photos }.toSet()
     require(referenced == photos.keys) { "备份照片与清单不一致" }

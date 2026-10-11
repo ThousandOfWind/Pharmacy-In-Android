@@ -124,19 +124,9 @@ class BackupStore(private val context: Context) {
     internal suspend fun prepare(source: Uri): PendingBackup = withContext(Dispatchers.IO) {
         val work = stage()
         try {
-            val archive = File(work, "input.zip")
-            requireNotNull(context.contentResolver.openInputStream(source)) { "无法读取备份文件" }.use { input ->
-                archive.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024); var total = 0L
-                    while (true) {
-                        val count = input.read(buffer); if (count == -1) break
-                        total += count; require(total <= MAX_BACKUP_BYTES) { "备份文件超过 512 MiB 上限" }
-                        output.write(buffer, 0, count)
-                    }
-                }
-            }
             val content = File(work, "content").apply { check(mkdir()) }
-            val checked = archive.inputStream().use { readBackupArchive(it, content) }
+            val checked = requireNotNull(context.contentResolver.openInputStream(source)) { "无法读取备份文件" }
+                .use { readBackupArchive(it, content) }
             PendingBackup(work, checked)
         } catch (error: Exception) { cleanup(work); throw error }
     }
