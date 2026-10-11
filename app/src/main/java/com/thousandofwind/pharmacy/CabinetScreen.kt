@@ -26,14 +26,15 @@ import coil.compose.AsyncImage
 @Composable
 fun CabinetScreen(
     state: UiState, search: (String) -> Unit, filter: (CabinetFilter) -> Unit, filterTag: (String?) -> Unit,
-    add: () -> Unit, open: (MedicineEntity) -> Unit
+    add: () -> Unit, open: (MedicineEntity) -> Unit, openGroup: (CabinetGroup) -> Unit
 ) {
     val rows = state.visible
+    val groups = cabinetGroups(rows)
     val listState = rememberLazyListState()
     var showFilters by rememberSaveable { mutableStateOf(false) }
     val filtered = state.session.filter != CabinetFilter.ALL || state.session.tag != null
     LaunchedEffect(state.session.highlightId, rows.map { it.id }) {
-        val index = rows.indexOfFirst { it.id == state.session.highlightId }
+        val index = groups.indexOfFirst { group -> group.records.any { it.id == state.session.highlightId } }
         if (index >= 0) listState.animateScrollToItem(index)
     }
     fun reset() { search(""); filter(CabinetFilter.ALL); filterTag(null) }
@@ -108,7 +109,15 @@ fun CabinetScreen(
                         state = listState, modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 18.dp)
                     ) {
-                        items(rows, key = { it.id }) { item -> MedicineRow(item, item.id == state.session.highlightId, { open(item) }) }
+                        items(groups, key = { it.key }) { group ->
+                            if (group.records.first().groupKey.isBlank()) {
+                                val item = group.records.first()
+                                MedicineRow(item, item.id == state.session.highlightId, { open(item) })
+                            } else {
+                                val complete = group.copy(records = state.medicines.filter { "group:${it.groupKey}" == group.key })
+                                GroupRow(complete, group.records.size, group.records.any { it.id == state.session.highlightId }, { openGroup(complete) })
+                            }
+                        }
                     }
                 }
             }
@@ -142,7 +151,7 @@ fun CabinetScreen(
 }
 
 @Composable
-private fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit) {
+fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, showStock: Boolean = false) {
     val background by animateColorAsState(if (highlighted) PaperPalette.Wash.copy(alpha = .5f) else PaperPalette.Paper, tween(220), label = "saved record")
     Column {
         Surface(onClick = open, color = background, modifier = Modifier.fillMaxWidth()) {
@@ -154,13 +163,17 @@ private fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> 
                     Text(item.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     val summary = listOf(item.information.brandName.takeUnless { it.equals(item.name, ignoreCase = true) }.orEmpty(), item.information.specification).filter(String::isNotBlank).joinToString(" · ")
                     if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    when (expiryStatus(item.expiryDate)) {
+                    if (!showStock) when (expiryStatus(item.expiryDate)) {
                         ExpiryStatus.EXPIRED -> Text("已过期", color = PaperPalette.Error, style = MaterialTheme.typography.bodySmall)
                         ExpiryStatus.SOON -> Text("90 天内到期", color = PaperPalette.Amber, style = MaterialTheme.typography.bodySmall)
                         ExpiryStatus.UNKNOWN -> Text(if (item.expiryDate.isBlank()) "日期待补充" else "有效期需核对", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
                         ExpiryStatus.VALID -> Unit
                     }
-                    if (item.remainingQuantity == 0) Text("已用完", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
+                    if (showStock) {
+                        ExpiryLabel(item.expiryDate)
+                        Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.bodyMedium)
+                        if (item.information.storageLocation.isNotBlank()) Text(item.information.storageLocation, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                    } else if (item.remainingQuantity == 0) Text("已用完", color = PaperPalette.Muted, style = MaterialTheme.typography.bodySmall)
                 }
                 InkIcon(InkSymbol.NEXT, modifier = Modifier.size(18.dp), color = PaperPalette.Frame)
             }

@@ -65,6 +65,13 @@ fun EditorScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("先记下名字，其他慢慢补充。", style = PaperHeading, color = PaperPalette.Muted)
+        if (draft.groupKey.isNotBlank()) Text("关联药品组：${draft.groupName}。请核对这条库存自己的品牌、规格与有效期。", style = MaterialTheme.typography.bodySmall)
+        if (draft.id == 0L && draft.groupKey.isBlank()) {
+            val related = state.medicines.firstOrNull { sameMedicineHint(draft, it) && it.groupKey.isNotBlank() }
+            if (related != null) TextButton(onClick = { update { copy(groupKey = related.groupKey, groupName = related.groupName) } }, enabled = !state.busy) {
+                Text("药箱已有相同通用名、品牌、规格，关联到 ${related.groupName}")
+            }
+        }
         if (draft.photos.isNotEmpty()) PhotoStrip(draft.photos, enabled = !state.scanning && !state.busy, onCrop = { cropPhoto = it })
         if (state.scanning) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
