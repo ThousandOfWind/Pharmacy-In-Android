@@ -423,7 +423,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 val combined = appendOcrText(session.value.draft.rawText, text)
                 if (combined == null) { report("累计识别原文超过 50000 字符，本次结果未采用；原图和原候选保留。"); done(false); return@launch }
                 val incoming = if (target == OCR_TARGET_ALL) extractCandidates(text) else regionCandidates(text, target)
-                updateDraft { copy(rawText = combined, candidates = if (target == OCR_TARGET_ALL) mergePhotoCandidates(candidates, incoming)
+                updateDraft { copy(rawText = combined, candidates = if (target == OCR_TARGET_ALL) replacePhotoCandidates(incoming)
                     else mergeRegionCandidates(candidates, incoming, target), reviewed = false) }
                 report(if (target == OCR_TARGET_ALL) "整图识别完成，请对照照片核对后采用" else "框选识别完成，请对照原图核对后采用")
                 done(true)

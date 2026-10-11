@@ -158,7 +158,7 @@ fun PhotoStrip(
                     DropdownMenu(expanded = actions == photo, onDismissRequest = { actions = null }) {
                         if (onRotate != null) DropdownMenuItem(text = { Text("顺时针旋转90°") }, enabled = enabled,
                             onClick = { actions = null; rotate(photo) })
-                        if (onRescan != null) DropdownMenuItem(text = { Text("整图重识别") }, enabled = enabled,
+                        if (onRescan != null) DropdownMenuItem(text = { Text("整图重识别（替换候选）") }, enabled = enabled,
                             onClick = { actions = null; onRescan(photo) })
                         if (onDelete != null) DropdownMenuItem(text = { Text("删除照片", color = PaperPalette.Error) }, enabled = enabled,
                             onClick = { actions = null; deleting = photo })

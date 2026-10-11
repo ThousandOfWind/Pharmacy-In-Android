@@ -34,7 +34,7 @@ private val fieldsByLabel = mapOf(
     "贮藏条件" to MedicineInformationField.STORAGE_CONDITIONS,
     "说明书修订日期" to MedicineInformationField.LEAFLET_SOURCE, "修订日期" to MedicineInformationField.LEAFLET_SOURCE
 )
-private val stopLabels = setOf("药品名称", "性状", "汉语拼音", "英文名称", "有效期", "执行标准", "生产日期", "上市许可持有人", "生产地址", "地址", "邮政编码", "电话号码", "传真号码", "网址")
+private val stopLabels = setOf("药品名称", "性状", "汉语拼音", "英文名称", "有效期", "执行标准", "生产日期", "上市许可持有人", "药品上市许可持有人", "生产地址", "地址", "邮政编码", "电话号码", "传真号码", "网址")
 private val indicationLabels = setOf("适应症", "功能主治", "功效", "主治")
 private val expiryLabels = setOf("有效期至", "有效日期", "失效日期", "失效期", "保质期至", "EXP")
 private val knownLabels = fieldsByLabel.keys + stopLabels + indicationLabels + expiryLabels
@@ -66,7 +66,7 @@ private fun alignDateColumns(text: String): String {
             val complete = labels.distinct().size == labels.size && values.size == labels.size &&
                 labels.zip(values).all { (heading, value) ->
                     if (heading == "生产日期" || heading in expiryLabels) parseOcrDate(value) != null
-                    else Regex("[A-Za-z0-9][A-Za-z0-9 ]{0,39}").matches(value)
+                    else Regex("[A-Za-z0-9][A-Za-z0-9 ./_-]{0,39}").matches(value)
                 } && parseOcrDate(input.getOrNull(i + labels.size * 2).orEmpty()) == null
             if (complete) {
                 output += labels.zip(values).map { (heading, value) -> "$heading：$value" }
@@ -138,6 +138,9 @@ fun extractCandidates(text: String): OcrCandidates {
     val sections = sections(text)
     val warnings = mutableListOf<String>()
     var information = MedicineInformation()
+    if (sections.any { it.label in setOf("上市许可持有人", "药品上市许可持有人") && it.text.isNotBlank() }) {
+        warnings += "已识别上市许可持有人，但持有人不一定是生产厂家，请查看原文并核对生产企业后填写"
+    }
     fieldsByLabel.values.toSet().forEach { field ->
         val matches = sections.filter { fieldsByLabel[it.label] == field && it.text.isNotBlank() }
         val values = matches.map { it.text }.distinct()
