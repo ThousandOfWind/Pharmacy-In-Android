@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { validateConfig, parseRunArgs, assertResetConsent, stopOwnedEmulator, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
+import { validateConfig, parseRunArgs, assertResetConsent, establishLaunchOwnership, stopOwnedEmulator, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
 
 const valid = { javaHome: 'C:/trusted/jdk', androidSdk: 'C:/trusted/sdk', maestroHome: 'C:/trusted/maestro', avdName: 'Pharmacy_E2E_Comparison_API34', port: 5556 };
 test('only explicitly named dedicated emulator and local absolute paths are accepted', () => {
@@ -38,6 +38,24 @@ test('identity checks fail closed instead of accepting partial names or error ou
   for (const output of ['Pharmacy_Local_API34\nOK', 'Pharmacy_E2E_Comparison_API34_other\nOK', 'error\nPharmacy_E2E_Comparison_API34\nOK']) {
     assert.throws(() => assertDeviceIdentity(output, valid.avdName));
   }
+});
+test('launch ownership failure rolls back only its captured launch and surfaces cleanup refusal', () => {
+  for (const failAt of ['capture', 'persist']) {
+    const calls = [];
+    assert.throws(() => establishLaunchOwnership({
+      captureIdentity: () => { calls.push('capture'); if (failAt === 'capture') throw new Error('probe failed'); return 'creation-time'; },
+      persistIdentity: () => { calls.push('persist'); throw new Error('disk write failed'); },
+      rollbackLaunch: identity => calls.push(`rollback:${identity ?? 'not-captured'}`),
+    }));
+    assert.deepEqual(calls, failAt === 'capture' ? ['capture', 'rollback:not-captured'] : ['capture', 'persist', 'rollback:creation-time']);
+  }
+  let rolledBack = false;
+  establishLaunchOwnership({ captureIdentity: () => 'creation-time', persistIdentity: () => {}, rollbackLaunch: () => { rolledBack = true; } });
+  assert.equal(rolledBack, false);
+  assert.throws(() => establishLaunchOwnership({
+    captureIdentity: () => { throw new Error('probe failed'); }, persistIdentity: () => {},
+    rollbackLaunch: () => { throw new Error('not owned'); },
+  }), /rollback refused or failed.*not owned/);
 });
 test('owned emulator cleanup handles ADB not-ready without touching unowned processes', () => {
   for (const ready of [true, false]) {

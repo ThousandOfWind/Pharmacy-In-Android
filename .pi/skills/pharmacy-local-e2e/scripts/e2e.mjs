@@ -35,6 +35,16 @@ export function assertResetConsent(options) {
   if (options.allowTestDataReset !== true) throw new Error('Maestro flows may clear the test App database. Stop and obtain explicit user approval for the disposable AVD, then pass --allow-test-data-reset for this run.');
 }
 
+export function establishLaunchOwnership({ captureIdentity, persistIdentity, rollbackLaunch }) {
+  let identity;
+  try { identity = captureIdentity(); persistIdentity(identity); }
+  catch (error) {
+    try { rollbackLaunch(identity); }
+    catch (cleanupError) { throw new Error(`${error.message}; launch rollback refused or failed: ${cleanupError.message}. Stop and inspect the owned launch manually.`); }
+    throw error;
+  }
+}
+
 export function stopOwnedEmulator({ verifyOwnership, checkReady, killReadyDevice, terminateOwnedProcess }) {
   verifyOwnership();
   let ready = false;
@@ -158,13 +168,26 @@ async function main() {
       checkTools(c);
       if (inventory(c).split(/\r?\n/).some(s => s.startsWith(`${c.serial}\t`))) { deviceReady(c); console.log('Dedicated emulator already running; ownership unchanged.'); return; }
       const stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a'); const stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
+      const launchStarted = new Date().toISOString();
       const child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
         { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
       let launchError; child.on('error', error => { launchError = error; }); child.unref(); fs.closeSync(stdout); fs.closeSync(stderr);
       const processProbe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if ($p -and $p.Name -eq 'emulator.exe' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)') { $p.CreationDate.ToUniversalTime().ToString('o') } else { exit 1 }`;
-      const creationTime = execute('powershell.exe', ['-NoProfile', '-Command', processProbe], c.env, { quiet: true }).trim();
-      if (!/^[0-9T:.+-]+Z$/.test(creationTime)) throw new Error('Cannot establish emulator process ownership; stop and inspect the launch.');
-      fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, creationTime, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: new Date().toISOString() }));
+      establishLaunchOwnership({
+        captureIdentity: () => {
+          const creationTime = execute('powershell.exe', ['-NoProfile', '-Command', processProbe], c.env, { quiet: true }).trim();
+          if (!/^[0-9T:.+-]+Z$/.test(creationTime)) throw new Error('Cannot establish emulator process ownership.');
+          return creationTime;
+        },
+        persistIdentity: creationTime => fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, creationTime, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: launchStarted })),
+        rollbackLaunch: creationTime => {
+          if (!Number.isSafeInteger(child.pid) || child.pid <= 0) return; // No OS process was created.
+          const timeCheck = creationTime ? `$p.CreationDate.ToUniversalTime().ToString('o') -eq '${creationTime}'`
+            : `$p.CreationDate.ToUniversalTime() -ge [datetime]'${launchStarted}'`;
+          const rollback = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if (-not $p) { exit 0 }; if (-not ($p.Name -eq 'emulator.exe' -and (${timeCheck}) -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 }; & taskkill.exe /PID ${child.pid} /T /F; exit $LASTEXITCODE`;
+          execute('powershell.exe', ['-NoProfile', '-Command', rollback], c.env, { quiet: true });
+        },
+      });
       const deadline = Date.now() + 180000;
       while (Date.now() < deadline) { if (launchError) throw launchError; try { deviceReady(c); console.log(`Started dedicated AVD ${c.config.avdName} (${c.serial}).`); return; } catch {} await sleep(2000); }
       throw new Error(`Dedicated emulator did not boot within 180 seconds; review ${c.state}.`);

@@ -40,7 +40,7 @@ node <skill-absolute-path>/scripts/e2e.mjs stop
 
 脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。该锁不约束其他工具，所以不要同时开 agent-device、其他 Maestro 或手工操作此 AVD。
 
-`start` 记录进程 PID、创建时间、AVD、端口和所属 worktree。`stop` 先验证该记录与实际进程匹配；即使启动超时且 ADB 未就绪，也能终止严格匹配的自有进程树，不按进程名称批量终止。不符合创建时间／命令行的 PID（包括复用的 PID）会被拒绝。
+`start` 记录进程 PID、创建时间、AVD、端口和所属 worktree。启动后如果身份探测、时间校验或 ownership 写入失败，会重新核对该次启动的 PID／AVD／端口及创建时间，回滚自有进程树；无法证明身份或回滚失败时明确报告并停止，不扩大权限或终止其他进程。`stop` 先验证该记录与实际进程匹配；即使启动超时且 ADB 未就绪，也能终止严格匹配的自有进程树，不按进程名称批量终止。不符合创建时间／命令行的 PID（包括复用的 PID）会被拒绝。
 
 默认产物位于当前 worktree 的 `build/local-e2e/<timestamp>/`。`result.json` 保存项目路径、Git commit、修改状态、APK SHA-256、执行状态与耗时；JUnit XML 和 Maestro debug 产物保存在同一目录。退出码非零就是失败／阻塞，不得当作通过。
 
