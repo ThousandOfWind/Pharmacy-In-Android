@@ -96,13 +96,13 @@ fun OcrRegionDialog(photo: String, busy: Boolean, dismiss: () -> Unit, recognize
                                 } ?: "未框选文字区域"
                                 if (!busy) customActions = listOf(
                                     CustomAccessibilityAction("创建居中选区") { region = OcrRegion(.2f, .35f, .8f, .65f); true },
-                                    CustomAccessibilityAction("选区向左") { region = region?.move(-.05f, 0f); true },
-                                    CustomAccessibilityAction("选区向右") { region = region?.move(.05f, 0f); true },
-                                    CustomAccessibilityAction("选区向上") { region = region?.move(0f, -.05f); true },
-                                    CustomAccessibilityAction("选区向下") { region = region?.move(0f, .05f); true },
-                                    CustomAccessibilityAction("扩大选区") { region = region?.resize(.05f); true },
-                                    CustomAccessibilityAction("缩小选区") { region = region?.resize(-.05f); true },
-                                    CustomAccessibilityAction("清除选区") { region = null; true }
+                                    CustomAccessibilityAction("选区向左") { region?.let { region = it.move(-.05f, 0f); true } ?: false },
+                                    CustomAccessibilityAction("选区向右") { region?.let { region = it.move(.05f, 0f); true } ?: false },
+                                    CustomAccessibilityAction("选区向上") { region?.let { region = it.move(0f, -.05f); true } ?: false },
+                                    CustomAccessibilityAction("选区向下") { region?.let { region = it.move(0f, .05f); true } ?: false },
+                                    CustomAccessibilityAction("扩大选区") { region?.let { region = it.resize(.05f); true } ?: false },
+                                    CustomAccessibilityAction("缩小选区") { region?.let { region = it.resize(-.05f); true } ?: false },
+                                    CustomAccessibilityAction("清除选区") { if (region == null) false else { region = null; true } }
                                 )
                             }.pointerInput(photo, busy) {
                                 if (!busy) detectDragGestures(

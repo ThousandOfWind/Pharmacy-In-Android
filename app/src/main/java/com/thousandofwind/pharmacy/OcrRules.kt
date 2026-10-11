@@ -38,10 +38,11 @@ private data class Section(val label: String, val text: String)
 private fun sections(text: String): List<Section> {
     val output = mutableListOf<Section>()
     var active: String? = null
+    var singleValue = false
     val lines = mutableListOf<String>()
     fun flush() {
         active?.let { output += Section(it, lines.joinToString("\n").trim()) }
-        active = null; lines.clear()
+        active = null; singleValue = false; lines.clear()
     }
     text.lines().forEach { original ->
         val value = original.trim()
@@ -55,11 +56,15 @@ private fun sections(text: String): List<Section> {
             ?: bare
         if (label != null) {
             flush(); active = label
+            singleValue = label in expiryLabels || fieldsByLabel[label]?.singleLine == true || colon != null && bracket == null
             val initial = expiryHeading?.groupValues?.get(2) ?: bracket?.groupValues?.get(2) ?: colon?.groupValues?.get(2) ?: ""
             if (initial.isNotBlank()) lines += initial
             // Unbracketed inline labels have no trustworthy paragraph boundary on a box.
-            if ((label in expiryLabels || colon != null && bracket == null) && initial.isNotBlank()) flush()
-        } else if (active != null) lines += original
+            if (singleValue && initial.isNotBlank()) flush()
+        } else if (active != null && value.isNotBlank()) {
+            lines += original
+            if (singleValue) flush()
+        }
     }
     flush()
     return output
@@ -92,6 +97,7 @@ fun extractCandidates(text: String): OcrCandidates {
         .map { it.text }.filter { it.isNotBlank() && it.length <= 200 && !it.contains('\n') }.distinct()
     val hints = text.lines().map(String::trim).filter { line ->
         line.length in 3..30 && !Regex("[:：【】\\[\\]。！？,，;；0-9]").containsMatchIn(line) &&
+            !Regex("口服|服用|一次|每次|一日|每日|外用|吞服|嚼服").containsMatchIn(line) &&
             Regex("(?:胶囊|膠囊|片|颗粒|顆粒|錠|滴眼液|口服液|混悬液|混懸液|软膏|軟膏|喷雾|噴霧|散)$").containsMatchIn(line)
     }.distinct().take(6)
     val name = named.singleOrNull().orEmpty()
