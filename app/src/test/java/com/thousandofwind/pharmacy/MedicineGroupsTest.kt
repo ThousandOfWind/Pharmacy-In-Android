@@ -20,19 +20,17 @@ class MedicineGroupsTest {
         assertNotNull(groupNameError("\n"))
     }
 
-    @Test fun backupGroupConflictsRemainSeparateAndDeterministic() {
+    @Test fun backupGroupsPreserveIdentityAndRejectConflictingNames() {
         val key = "12345678-1234-1234-1234-123456789012"
-        val input = listOf(BackupRecord("药A", groupKey = key, groupName = "药组A"), BackupRecord("药B", groupKey = key, groupName = "药组A"))
+        val other = "12345678-1234-1234-1234-123456789013"
+        val input = listOf(BackupRecord("药A", groupKey = key, groupName = "药组A"), BackupRecord("药B", groupKey = other, groupName = "药组A"))
         assertEquals(input, resolveBackupGroups(input, emptyMap()))
-        val resolved = resolveBackupGroups(input, mapOf(key to "用户修改的分组"))
-        assertNotEquals(key, resolved.first().groupKey)
-        assertEquals(resolved.first().groupKey, resolved.last().groupKey)
-        assertEquals(resolved, resolveBackupGroups(input, mapOf(key to "用户修改的分组", resolved.first().groupKey to "药组A")))
-        assertEquals(BackupDocument(1, resolved), decodeBackup(encodeBackup(BackupDocument(1, resolved))))
-        val candidate = java.util.UUID.nameUUIDFromBytes("pharmacy-group:$key:药组A:0".toByteArray()).toString()
-        val withCollision = input + BackupRecord("药C", groupKey = candidate, groupName = "药组A")
-        val separated = resolveBackupGroups(withCollision, mapOf(key to "其他组"))
-        assertNotEquals(separated.first().groupKey, separated.last().groupKey)
-        assertEquals(candidate, separated.last().groupKey)
+        assertEquals(input, resolveBackupGroups(input, mapOf(key to "药组A")))
+        assertNotEquals(input.first().groupKey, input.last().groupKey)
+        assertEquals(BackupDocument(1, input), decodeBackup(encodeBackup(BackupDocument(1, input))))
+        try {
+            resolveBackupGroups(input, mapOf(key to "其他组"))
+            fail("Conflicting group must be rejected, not remapped into another group")
+        } catch (_: IllegalArgumentException) { }
     }
 }

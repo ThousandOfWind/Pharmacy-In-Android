@@ -1,28 +1,13 @@
 package com.thousandofwind.pharmacy
 
-import java.util.UUID
-
-/** Never merge same-named groups. A UUID/name conflict gets a deterministic separate identity. */
+/** UUID is the only association identity. Never infer/remap an identity from a display name. */
 fun resolveBackupGroups(records: List<BackupRecord>, existing: Map<String, String>): List<BackupRecord> {
-    val occupied = existing.toMutableMap()
-    val incomingKeys = records.map { it.groupKey }.filter(String::isNotBlank).toSet()
-    val assignedOwners = mutableMapOf<String, Pair<String, String>>()
-    val remapped = mutableMapOf<Pair<String, String>, String>()
-    return records.map { record ->
-        if (record.groupKey.isBlank()) record else {
-            val identity = record.groupKey to record.groupName
-            val target = remapped.getOrPut(identity) {
-                var key = record.groupKey
-                var attempt = 0
-                while (occupied.containsKey(key) && occupied[key] != record.groupName ||
-                    key != record.groupKey && key in incomingKeys || assignedOwners[key]?.let { it != identity } == true) {
-                    key = UUID.nameUUIDFromBytes("pharmacy-group:${record.groupKey}:${record.groupName}:${attempt++}".toByteArray()).toString()
-                }
-                occupied[key] = record.groupName
-                assignedOwners[key] = identity
-                key
-            }
-            record.copy(groupKey = target)
+    val groups = existing.toMutableMap()
+    records.filter { it.groupKey.isNotBlank() }.forEach { record ->
+        require(!groups.containsKey(record.groupKey) || groups[record.groupKey] == record.groupName) {
+            "备份分组标识与现有药品组名称冲突，未恢复；请先核对分组，原药箱保留"
         }
+        groups[record.groupKey] = record.groupName
     }
+    return records
 }

@@ -188,7 +188,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         Screen.GROUP -> page.selectedGroup?.let { group ->
                             GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
                         } ?: Column(Modifier.padding(24.dp)) {
-                            Text("这个药品组已不存在，库存记录仍在药箱中。")
+                            Text(if (!page.loaded) "正在读取药品组…" else page.databaseError ?: "这个药品组已不存在，库存记录仍在药箱中。")
                             TextButton(onClick = viewModel::back) { Text("回到药箱") }
                         }
                         Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto, viewModel::scanRegion)
