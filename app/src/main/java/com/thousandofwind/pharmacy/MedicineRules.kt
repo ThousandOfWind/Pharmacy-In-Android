@@ -85,39 +85,11 @@ fun formError(name: String, expiry: String, quantity: String, unit: String): Str
     else -> quantityError(quantity, unit)
 }
 
-data class OcrCandidates(val name: String = "", val expiry: String = "", val efficacy: String = "")
-
-/** Only explicitly labelled fields become candidates. Unlabelled text remains available for review. */
-fun extractCandidates(text: String): OcrCandidates {
-    val lines = text.lines().map(String::trim).filter(String::isNotBlank)
-    val name = lines.firstNotNullOfOrNull { line ->
-        Regex("(?:通用名称|药品名称|商品名称|通用名)\\s*[:：]\\s*(.+)").find(line)?.groupValues?.get(1)?.trim()
-    }.orEmpty()
-    var expiry = ""
-    for ((index, line) in lines.withIndex()) {
-        // Never substitute a production date or a shelf-life duration for an expiry date.
-        val label = Regex("(?:有效期至|有效日期|失效日期|失效期|保质期至|EXP\\b)", RegexOption.IGNORE_CASE).find(line)
-            ?: continue
-        val afterLabel = line.substring(label.range.last + 1).trim().trimStart(':', '：').trim()
-        val nextLine = lines.getOrNull(index + 1).orEmpty().takeIf {
-            !Regex("生产|制造|MFG", RegexOption.IGNORE_CASE).containsMatchIn(it)
-        }.orEmpty()
-        val dateText = afterLabel.ifBlank { nextLine }
-        if (Regex("生产|制造|MFG", RegexOption.IGNORE_CASE).containsMatchIn(dateText)) continue
-        val date = Regex("(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2}))?")
-            .find(dateText) ?: continue
-        val year = date.groupValues[1]
-        val month = date.groupValues[2].padStart(2, '0')
-        val day = date.groupValues[3]
-        val candidate = "$year-$month" + if (day.isNotBlank()) "-${day.padStart(2, '0')}" else ""
-        if (expiryDay(candidate) != null) {
-            expiry = candidate
-            break
-        }
-    }
-    val efficacy = lines.firstOrNull { Regex("适应症|功能主治|功效").containsMatchIn(it) }.orEmpty()
-    return OcrCandidates(name, expiry, efficacy)
-}
+data class OcrCandidates(
+    val name: String = "", val expiry: String = "", val efficacy: String = "",
+    val information: MedicineInformation = MedicineInformation(),
+    val nameOptions: List<String> = emptyList(), val warnings: List<String> = emptyList()
+)
 
 fun remainingLabel(quantity: Int?, unit: String): String = when {
     quantity == null -> "余量未记录"

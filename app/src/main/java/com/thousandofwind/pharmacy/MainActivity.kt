@@ -162,7 +162,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                 screenState.SaveableStateProvider(if (page.session.screen == Screen.DETAIL) "detail-${page.session.selectedId}" else page.session.screen) {
                     when (page.session.screen) {
                         Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
-                        Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto)
+                        Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto, viewModel::scanRegion)
                         Screen.DETAIL -> page.selected?.let { item ->
                             DetailScreen(item, page.busy, { viewModel.edit(item) },
                                 { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) }, { viewModel.remove(item) })

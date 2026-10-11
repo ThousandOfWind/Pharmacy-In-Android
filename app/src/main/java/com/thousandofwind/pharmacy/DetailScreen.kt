@@ -124,7 +124,7 @@ private fun StockDialog(item: MedicineEntity, busy: Boolean, dismiss: () -> Unit
 }
 
 @Composable
-fun PhotoStrip(photos: List<String>) {
+fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) -> Unit)? = null) {
     var enlarged by rememberSaveable { mutableStateOf<String?>(null) }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         photos.forEachIndexed { index, photo ->
@@ -135,6 +135,7 @@ fun PhotoStrip(photos: List<String>) {
                         .background(MaterialTheme.colorScheme.surfaceVariant).clickable { enlarged = photo }
                 )
                 Text("照片 ${index + 1} · 点击放大", style = MaterialTheme.typography.labelSmall)
+                if (onCrop != null) TextButton(onClick = { onCrop(photo) }, enabled = enabled) { Text("框选重识别") }
             }
         }
     }

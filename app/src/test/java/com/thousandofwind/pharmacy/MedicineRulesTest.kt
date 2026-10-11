@@ -94,7 +94,7 @@ class MedicineRulesTest {
         val candidates = extractCandidates("商标\n通用名称：示例药片\n生产日期：2025-01-01\n有效期至：2028年6月30日\n功能主治：包装文字")
         assertEquals("示例药片", candidates.name)
         assertEquals("2028-06-30", candidates.expiry)
-        assertEquals("功能主治：包装文字", candidates.efficacy)
+        assertEquals("包装文字", candidates.efficacy)
         assertEquals("2028-06", extractCandidates("EXP 2028/06").expiry)
         assertEquals("2028-06-30", extractCandidates("有效期至：\n2028.6.30").expiry)
     }
