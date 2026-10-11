@@ -1,5 +1,7 @@
 appId: com.thousandofwind.pharmacy
 ---
+# Fail closed even if the YAML is invoked directly instead of through the guarded runner.
+- assertTrue: ${typeof PHARMACY_ALLOW_TEST_DATA_RESET !== 'undefined' && PHARMACY_ALLOW_TEST_DATA_RESET === 'true'}
 - launchApp:
     clearState: true
 - assertVisible: '我的药箱'

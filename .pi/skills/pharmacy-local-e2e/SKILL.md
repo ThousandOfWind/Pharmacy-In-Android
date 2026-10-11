@@ -23,13 +23,13 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
    - 缺工具、未获 ADB 授权、端口被其他 AVD 占用时停止，报告阻塞；不自动安装、升级、禁用安全策略或操作其他设备。
 2. `node <runner> start`：仅启动配置的专用模拟器。不会清理日常设备。
 3. 先取得用户对**配置的 AVD 可丢弃、允许本次清空测试 App 数据**的明确授权，再运行 `node <runner> run --allow-test-data-reset`：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
-   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。AVD 名称前缀不证明数据可丢弃；未明确授权时停止询问，不自行补上确认参数。每次 `run` 均需显式 opt-in，避免子流程清数据漏检；在执行流程前重新验证设备身份及本次确认。
+   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。AVD 名称前缀不证明数据可丢弃；未明确授权时停止询问，不自行补上确认参数。每次 `run` 均需显式 opt-in，避免子流程清数据漏检；在执行流程前重新验证设备身份及本次确认。smoke YAML 本身还检查 `PHARMACY_ALLOW_TEST_DATA_RESET`，runner 仅在确认后传入该值；未经确认不能直接设置变量绕过入口。
    - 可以 `node <runner> run --allow-test-data-reset --flow <absolute-yaml-path>` 执行本任务相关的小流程。即使自定义流程不清数据，也要求确认，因为入口不声称提供 YAML 沙箱。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
    - 没有“跳过构建并当作当前版本通过”的选项。
 4. 失败后 `node <runner> inspect` 获取精简的界面文字、ID、边界；`node <runner> screenshot` 保存当前屏幕。通过 `read` 查看失败截图和相应层级，定位问题后重跑。
    - 不仅凭编译、RPC 成功、点击成功或“保存成功”提示判断功能正确。断言保存后的卡片、详情、余量和重启后的数据。
    - 不把真实 Bug 的断言删除、设 optional 或改成恒真来让流程通过。
-5. 验证完成 `node <runner> stop`：仅关闭本 runner 启动且仍匹配的专用 AVD；不会关闭其他运行者启动的设备。
+5. 验证完成或启动超时后 `node <runner> stop`：校验本 runner 启动的 PID、创建时间、AVD 和端口。ADB 就绪时正常关闭；未就绪时仅终止通过上述校验的自有进程树。身份不符时拒绝，不关闭其他运行者启动的设备。
 6. 报告：验证的 APK hash／提交、用例、通过／失败／阻塞、证据目录和未验证项。不提交截图、日志、机器路径或数据库。
 
 ## 新功能验收策略

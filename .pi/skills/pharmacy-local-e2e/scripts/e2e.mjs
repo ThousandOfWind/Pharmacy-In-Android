@@ -35,6 +35,15 @@ export function assertResetConsent(options) {
   if (options.allowTestDataReset !== true) throw new Error('Maestro flows may clear the test App database. Stop and obtain explicit user approval for the disposable AVD, then pass --allow-test-data-reset for this run.');
 }
 
+export function stopOwnedEmulator({ verifyOwnership, checkReady, killReadyDevice, terminateOwnedProcess }) {
+  verifyOwnership();
+  let ready = false;
+  try { checkReady(); ready = true; } catch {}
+  if (ready) killReadyDevice();
+  else terminateOwnedProcess();
+  return ready ? 'adb' : 'owned-process';
+}
+
 export function assertDeviceIdentity(output, expected) {
   const lines = output.split(/\r?\n/).map(s => s.trim()).filter(s => s && s !== 'OK');
   if (lines.length !== 1 || lines[0] !== expected) throw new Error('Device identity mismatch; refusing to install, reset or operate this device.');
@@ -152,20 +161,29 @@ async function main() {
       const child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
         { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
       let launchError; child.on('error', error => { launchError = error; }); child.unref(); fs.closeSync(stdout); fs.closeSync(stderr);
-      fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: new Date().toISOString() }));
+      const processProbe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if ($p -and $p.Name -eq 'emulator.exe' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)') { $p.CreationDate.ToUniversalTime().ToString('o') } else { exit 1 }`;
+      const creationTime = execute('powershell.exe', ['-NoProfile', '-Command', processProbe], c.env, { quiet: true }).trim();
+      if (!/^[0-9T:.+-]+Z$/.test(creationTime)) throw new Error('Cannot establish emulator process ownership; stop and inspect the launch.');
+      fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, creationTime, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: new Date().toISOString() }));
       const deadline = Date.now() + 180000;
       while (Date.now() < deadline) { if (launchError) throw launchError; try { deviceReady(c); console.log(`Started dedicated AVD ${c.config.avdName} (${c.serial}).`); return; } catch {} await sleep(2000); }
       throw new Error(`Dedicated emulator did not boot within 180 seconds; review ${c.state}.`);
     }
-    deviceReady(c);
     if (action === 'stop') {
       if (!fs.existsSync(ownership)) throw new Error('This runner did not start this emulator; leave it running.');
       const owner = JSON.parse(fs.readFileSync(ownership, 'utf8'));
-      if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid)) throw new Error('Emulator ownership mismatch; refusing shutdown.');
-      const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if ($p -and $p.Name -eq 'emulator.exe' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)') { 'owned' } else { exit 1 }`;
-      execute('powershell.exe', ['-NoProfile', '-Command', probe], c.env, { quiet: true });
-      c.adbCall(['emu', 'kill']); fs.unlinkSync(ownership); console.log('Dedicated emulator stopped.'); return;
+      if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator ownership mismatch; refusing shutdown.');
+      const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if (-not ($p -and $p.Name -eq 'emulator.exe' -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '${owner.creationTime}' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 };`;
+      const method = stopOwnedEmulator({
+        verifyOwnership: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} 'owned'`], c.env, { quiet: true }),
+        checkReady: () => deviceReady(c),
+        killReadyDevice: () => c.adbCall(['emu', 'kill']),
+        // Recheck PID, creation time and launch arguments immediately before terminating only this owned process tree.
+        terminateOwnedProcess: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} & taskkill.exe /PID ${owner.pid} /T /F; exit $LASTEXITCODE`], c.env, { quiet: true }),
+      });
+      fs.unlinkSync(ownership); console.log(`Dedicated emulator stopped (${method}).`); return;
     }
+    deviceReady(c);
     const dir = outputDir(c); console.log(`Evidence: ${dir}`);
     if (action === 'screenshot') {
       const r = spawnSync(c.adb, ['-s', c.serial, 'exec-out', 'screencap', '-p'], { env: c.env, timeout: 30000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
@@ -197,7 +215,7 @@ async function main() {
       if (hash !== result.apkSha256) throw new Error('Installed APK hash differs from the current build.');
       // Recheck both the resolved device identity and this invocation's explicit consent just before execution.
       deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
-      c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
+      c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--env', 'PHARMACY_ALLOW_TEST_DATA_RESET=true', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
         '--test-output-dir', path.join(dir, 'maestro'), flow], { timeout: 300000, log: path.join(dir, 'maestro.log') });
       if (!fs.existsSync(path.join(dir, 'report.xml'))) throw new Error('Maestro succeeded without the expected JUnit report.');
       result.status = 'PASSED';

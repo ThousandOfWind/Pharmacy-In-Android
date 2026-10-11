@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateConfig, parseRunArgs, assertResetConsent, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { validateConfig, parseRunArgs, assertResetConsent, stopOwnedEmulator, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
 
 const valid = { javaHome: 'C:/trusted/jdk', androidSdk: 'C:/trusted/sdk', maestroHome: 'C:/trusted/maestro', avdName: 'Pharmacy_E2E_Comparison_API34', port: 5556 };
 test('only explicitly named dedicated emulator and local absolute paths are accepted', () => {
@@ -22,11 +24,41 @@ test('destructive flow execution requires a separate per-invocation opt-in', () 
     assert.throws(() => parseRunArgs(args));
   }
 });
+test('smoke YAML itself rejects missing reset opt-in before any app launch', () => {
+  const flow = fs.readFileSync(new URL('../flows/smoke.yaml', import.meta.url), 'utf8');
+  const expression = flow.match(/^- assertTrue: \$\{(.+)\}$/m)?.[1];
+  assert.ok(expression);
+  assert.ok(flow.indexOf('- assertTrue:') < flow.indexOf('- launchApp:'));
+  assert.equal(vm.runInNewContext(expression, {}), false);
+  assert.equal(vm.runInNewContext(expression, { PHARMACY_ALLOW_TEST_DATA_RESET: true }), false);
+  assert.equal(vm.runInNewContext(expression, { PHARMACY_ALLOW_TEST_DATA_RESET: 'true' }), true);
+});
 test('identity checks fail closed instead of accepting partial names or error output', () => {
   assert.doesNotThrow(() => assertDeviceIdentity('Pharmacy_E2E_Comparison_API34\r\r\nOK\r\n', valid.avdName));
   for (const output of ['Pharmacy_Local_API34\nOK', 'Pharmacy_E2E_Comparison_API34_other\nOK', 'error\nPharmacy_E2E_Comparison_API34\nOK']) {
     assert.throws(() => assertDeviceIdentity(output, valid.avdName));
   }
+});
+test('owned emulator cleanup handles ADB not-ready without touching unowned processes', () => {
+  for (const ready of [true, false]) {
+    const calls = [];
+    const method = stopOwnedEmulator({
+      verifyOwnership: () => calls.push('verify'),
+      checkReady: () => { calls.push('ready'); if (!ready) throw new Error('not booted'); },
+      killReadyDevice: () => calls.push('adb'),
+      terminateOwnedProcess: () => calls.push('owned-process'),
+    });
+    assert.equal(method, ready ? 'adb' : 'owned-process');
+    assert.deepEqual(calls, ['verify', 'ready', method]);
+  }
+  let touched = false;
+  assert.throws(() => stopOwnedEmulator({
+    verifyOwnership: () => { throw new Error('PID reused or not owned'); },
+    checkReady: () => { touched = true; },
+    killReadyDevice: () => { touched = true; },
+    terminateOwnedProcess: () => { touched = true; },
+  }));
+  assert.equal(touched, false);
 });
 test('compact inspect retains actual text, resource IDs and bounds without empty wrappers', () => {
   const result = compactHierarchy({ roots: [{ attributes: {}, children: [

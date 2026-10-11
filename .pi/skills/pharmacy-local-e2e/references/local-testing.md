@@ -36,9 +36,11 @@ node <skill-absolute-path>/scripts/e2e.mjs stop
 
 默认 smoke 覆盖：空名称 → 中文录入 → 数量需单位 → 保存后库存卡片 → 搜索 → 详情 → 更新余量 → 进程重启持久化。它使用前缀 `E2E-` 的合成数据，不触发相机或进入私人应用。
 
-**单独确认破坏性操作**：AVD 名称或前缀不能证明数据可丢弃。每次运行都需要用户明确允许本次清空该 AVD 的测试 App 数据，再传 `--allow-test-data-reset`；无参数时在构建、安装或设备操作之前拒绝执行。即使使用自定义流程也需要确认，不能只检查根 YAML 而漏掉子流程。流程执行前重新检查 AVD 身份及本次 opt-in，并在 `result.json` 中记录。skill 不可把该参数当作无条件默认值。
+**单独确认破坏性操作**：AVD 名称或前缀不能证明数据可丢弃。每次运行都需要用户明确允许本次清空该 AVD 的测试 App 数据，再传 `--allow-test-data-reset`；无参数时在构建、安装或设备操作之前拒绝执行。即使使用自定义流程也需要确认，不能只检查根 YAML 而漏掉子流程。流程执行前重新检查 AVD 身份及本次 opt-in，并在 `result.json` 中记录。smoke YAML 也在任何 `launchApp/clearState` 前检查 `PHARMACY_ALLOW_TEST_DATA_RESET`；runner 仅在 opt-in 后传入该变量。直接调用 YAML 而未显式确认会失败。skill 不可把参数或变量当作无条件默认值。
 
 脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。该锁不约束其他工具，所以不要同时开 agent-device、其他 Maestro 或手工操作此 AVD。
+
+`start` 记录进程 PID、创建时间、AVD、端口和所属 worktree。`stop` 先验证该记录与实际进程匹配；即使启动超时且 ADB 未就绪，也能终止严格匹配的自有进程树，不按进程名称批量终止。不符合创建时间／命令行的 PID（包括复用的 PID）会被拒绝。
 
 默认产物位于当前 worktree 的 `build/local-e2e/<timestamp>/`。`result.json` 保存项目路径、Git commit、修改状态、APK SHA-256、执行状态与耗时；JUnit XML 和 Maestro debug 产物保存在同一目录。退出码非零就是失败／阻塞，不得当作通过。
 
