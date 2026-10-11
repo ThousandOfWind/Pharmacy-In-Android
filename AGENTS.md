@@ -23,11 +23,16 @@
 
 - 开始前检查工作区、分支和现有 worktree，不覆盖或丢弃用户未提交的修改。
 - 获取远端最新状态，以最新 `origin/main` 为基线创建本次任务专用的分支和新 worktree。
-- 例如：
+- **所有任务 worktree（包括正式任务和实验）统一放在主 workspace 的 `.worktrees/<task>/` 下**，例如 `Pharmacy-In-Android/.worktrees/photo-ocr/`；不再平铺到 `repos/Pharmacy-In-Android-<task>`。根目录 `.gitignore` 必须包含 `/.worktrees/`，避免把其他工作区的文件纳入主仓库提交。
+- `.worktrees/` 以主 workspace（原始 checkout）为根，不以当前任务 worktree 为根；不要在任务 worktree 内嵌套创建 `.worktrees/`。
+- 例如，以下命令在主 workspace 根目录执行（实验按范围改用 `poc/`、`experiment/` 或 `research/` 分支）：
   ```bash
   git fetch origin
-  git worktree add ../Pharmacy-In-Android-<task> -b feature/<task> origin/main
+  mkdir -p .worktrees
+  git worktree add .worktrees/<task> -b feature/<task> origin/main
   ```
+- 迁移已有 worktree 时先检查分支、修改和运行中的构建／编辑进程，再使用 `git worktree move <old-path> <main-workspace>/.worktrees/<task>`，不直接拖动目录或使用强制选项。迁移后核对 `git worktree list`、HEAD、工作区状态以及未跟踪／被忽略的本地产物；路径相关的 IDE、构建缓存或本机配置可能需要更新，未经验证不能宣称仍可直接使用。
+- 任务结束后检查工作区修改、本地独有提交和未跟踪／被忽略产物，再决定是否清理；本次整理和新布局不授权删除历史 worktree、分支或实验产物。未获清理授权时保留在 `.worktrees/`，不得使用 `git worktree remove --force` 或 `git clean` 丢弃内容。
 - 不复用基于旧 main 的开发 worktree，不直接在 main 上开发。
 - 如果需要更新本地 main，仅允许安全的 fast-forward；遇到分叉或未提交修改先处理，不使用强制重置。
 
