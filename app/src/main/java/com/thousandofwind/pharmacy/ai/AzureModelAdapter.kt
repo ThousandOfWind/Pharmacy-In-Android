@@ -19,6 +19,7 @@ import kotlinx.serialization.json.*
 class AzureModelAdapter(config: AzureConnection, key: String, engine: HttpClientEngine = OkHttp.create()) : ModelAdapter {
     init { require(connectionError(config) == null); require(key.isNotBlank()) }
     private val deployment = config.deployment
+    private val v1 = config.api == AzureApi.V1
     private val client = OpenAI(OpenAIConfig(
         token = if (config.api == AzureApi.V1) key else "", host = OpenAIHost(config.baseUrl(), if (config.api == AzureApi.DEPLOYMENT) mapOf("api-version" to config.apiVersion) else emptyMap()),
         headers = if (config.api == AzureApi.DEPLOYMENT) mapOf("api-key" to key) else emptyMap(),
@@ -47,7 +48,7 @@ class AzureModelAdapter(config: AzureConnection, key: String, engine: HttpClient
         var finish: String? = null
         client.chatCompletions(chatCompletionRequest {
             model = ModelId(deployment)
-            store = false
+            if (v1) store = false
             this.messages = requestMessages
             if (tools) tools {
                 function("search_medicines", "按名称、品牌、通用名或位置查询用户库存，最多返回 10 条基本记录，不含备注/照片/说明书", Parameters.buildJsonObject {

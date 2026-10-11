@@ -29,7 +29,7 @@ class AiRulesTest {
                 val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
                 assertEquals("my-deployment", body["model"]!!.jsonPrimitive.content)
                 assertTrue(body["stream"]!!.jsonPrimitive.boolean)
-                assertFalse(body["store"]!!.jsonPrimitive.boolean)
+                if (api == AzureApi.V1) assertFalse(body["store"]!!.jsonPrimitive.boolean) else assertNull(body["store"])
                 val frames = if (body["tools"] != null) {
                     val deltas = listOf(
                         "{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"search_medicines\",\"arguments\":\"{\\\"query\\\":\"}}]}",

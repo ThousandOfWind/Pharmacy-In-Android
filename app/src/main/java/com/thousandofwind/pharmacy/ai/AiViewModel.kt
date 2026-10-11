@@ -45,6 +45,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     fun allowCabinet(value: Boolean) { if (!state.value.busy) state.update { it.copy(allowCabinet = value) } }
     fun dismissError() { state.update { it.copy(error = null) } }
     fun stop() {
+        state.update { it.copy(allowCabinet = false) }
         if (task?.isActive != true || !state.value.busy) return
         task?.cancel()
         // Stay busy until the old coroutine settles, so its finally cannot clobber a new run.
