@@ -33,7 +33,7 @@ const val MAX_TAG_LENGTH = 12
 
 data class MedicineTagGroup(val label: String, val tags: List<String>)
 
-// Suggestions only: never infer a medicine's indications, route or storage requirements.
+// Optional organizing labels. OCR suggestions require explicit section evidence and user adoption.
 val commonMedicineTagGroups = listOf(
     MedicineTagGroup("用途整理", listOf("感冒相关", "退热", "止痛", "过敏相关", "肠胃相关", "咽喉相关", "眼部", "皮肤相关")),
     MedicineTagGroup("使用方式", listOf("口服", "外用")),
@@ -88,7 +88,8 @@ fun formError(name: String, expiry: String, quantity: String, unit: String): Str
 data class OcrCandidates(
     val name: String = "", val expiry: String = "", val efficacy: String = "",
     val information: MedicineInformation = MedicineInformation(),
-    val nameOptions: List<String> = emptyList(), val warnings: List<String> = emptyList()
+    val nameOptions: List<String> = emptyList(), val warnings: List<String> = emptyList(),
+    val tagSuggestions: List<OcrTagSuggestion> = emptyList()
 )
 
 fun remainingLabel(quantity: Int?, unit: String): String = when {

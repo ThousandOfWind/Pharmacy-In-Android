@@ -88,7 +88,10 @@ fun DetailScreen(
         }
         LeafletDisclaimer()
         if (item.notes.isNotBlank()) PaperDisclosure("备注", notes, { notes = !notes }) { Text(item.notes) }
-        if (item.ocrRawText.isNotBlank()) PaperDisclosure("识别原文", raw, { raw = !raw }) { Text(item.ocrRawText, style = MaterialTheme.typography.bodySmall) }
+        if (item.ocrRawText.isNotBlank()) PaperDisclosure("识别原文", raw, { raw = !raw }) {
+            Text("长按可选择并复制；历史原文可能包含已移除照片的识别结果。", style = MaterialTheme.typography.bodySmall)
+            SelectableOcrText(item.ocrRawText)
+        }
         TextButton(onClick = { confirmRemove = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("移出药箱", color = MaterialTheme.colorScheme.error) }
     }
     if (stock) StockDialog(item, busy, { stock = false }, updateStock)
@@ -124,8 +127,22 @@ private fun StockDialog(item: MedicineEntity, busy: Boolean, dismiss: () -> Unit
 }
 
 @Composable
-fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) -> Unit)? = null) {
+fun PhotoStrip(
+    photos: List<String>, enabled: Boolean = true, onCrop: ((String) -> Unit)? = null,
+    onRotate: ((String, (String) -> Unit) -> Unit)? = null, onDelete: ((String) -> Unit)? = null,
+    onRescan: ((String) -> Unit)? = null
+) {
     var enlarged by rememberSaveable { mutableStateOf<String?>(null) }
+    var deleting by rememberSaveable { mutableStateOf<String?>(null) }
+    var actions by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(photos) {
+        if (enlarged !in photos) enlarged = null
+        if (deleting !in photos) deleting = null
+        if (actions !in photos) actions = null
+    }
+    fun rotate(photo: String) {
+        onRotate?.invoke(photo) { rotated -> if (enlarged == photo) enlarged = rotated }
+    }
     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         photos.forEachIndexed { index, photo ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -135,9 +152,26 @@ fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) 
                         .background(MaterialTheme.colorScheme.surfaceVariant).clickable { enlarged = photo }
                 )
                 Text("照片 ${index + 1} · 点击放大", style = MaterialTheme.typography.labelSmall)
-                if (onCrop != null) TextButton(onClick = { onCrop(photo) }, enabled = enabled) { Text("框选重识别") }
+                if (onCrop != null) OutlinedButton(onClick = { onCrop(photo) }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("框选重识别") }
+                if (onRotate != null || onDelete != null || onRescan != null) Box {
+                    OutlinedButton(onClick = { actions = photo }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("旋转 / 删除 / 识别") }
+                    DropdownMenu(expanded = actions == photo, onDismissRequest = { actions = null }) {
+                        if (onRotate != null) DropdownMenuItem(text = { Text("顺时针旋转90°") }, enabled = enabled,
+                            onClick = { actions = null; rotate(photo) })
+                        if (onRescan != null) DropdownMenuItem(text = { Text("整图重识别") }, enabled = enabled,
+                            onClick = { actions = null; onRescan(photo) })
+                        if (onDelete != null) DropdownMenuItem(text = { Text("删除照片", color = PaperPalette.Error) }, enabled = enabled,
+                            onClick = { actions = null; deleting = photo })
+                    }
+                }
             }
         }
+    }
+    deleting?.let { photo ->
+        AlertDialog(onDismissRequest = { if (enabled) deleting = null }, title = { Text("删除这张照片？") },
+            text = { Text("保存后将从这条记录中移除照片。已填写资料和历史识别原文保留；待采用候选全部清空，可重识别保留的照片。放弃本次编辑仍保留原记录。") },
+            confirmButton = { TextButton(onClick = { deleting = null; onDelete?.invoke(photo) }, enabled = enabled) { Text("确认删除") } },
+            dismissButton = { TextButton(onClick = { deleting = null }, enabled = enabled) { Text("保留照片") } })
     }
     enlarged?.let { photo ->
         Dialog(onDismissRequest = { enlarged = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -152,7 +186,14 @@ fun PhotoStrip(photos: List<String>, enabled: Boolean = true, onCrop: ((String) 
                         }
                     }.graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y))
                 TextButton(onClick = { enlarged = null }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { Text("关闭", color = Color.White) }
-                Text("双指缩放查看包装文字", Modifier.align(Alignment.BottomCenter).padding(24.dp), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Column(Modifier.align(Alignment.BottomCenter).systemBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("双指缩放查看包装文字", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    Row {
+                        if (onRotate != null) TextButton(onClick = { rotate(photo) }, enabled = enabled) { Text("旋转90°", color = Color.White) }
+                        if (onCrop != null) TextButton(onClick = { enlarged = null; onCrop(photo) }, enabled = enabled) { Text("框选重识别", color = Color.White) }
+                        if (onDelete != null) TextButton(onClick = { enlarged = null; deleting = photo }, enabled = enabled) { Text("删除照片", color = Color.White) }
+                    }
+                }
             }
         }
     }

@@ -32,6 +32,7 @@ data class OcrRegion(val left: Float, val top: Float, val right: Float, val bott
     }
 }
 
+const val OCR_TARGET_ALL = "all"
 const val OCR_TARGET_NAME = "name"
 const val OCR_TARGET_EXPIRY = "expiry"
 const val OCR_TARGET_EFFICACY = "efficacy"
@@ -50,8 +51,7 @@ fun regionCandidates(text: String, target: String): OcrCandidates {
         }
         OCR_TARGET_EXPIRY -> {
             // Only an unambiguous literal date, or explicitly labelled expiry. Never duration/MFG.
-            val isolatedDate = Regex("20\\d{2}[年./-]\\d{1,2}(?:[月./-]\\d{1,2})?月?日?").matches(raw)
-            val literal = if (isolatedDate) extractCandidates("有效期至：$raw").expiry else ""
+            val literal = parseOcrDate(raw).orEmpty()
             OcrCandidates(expiry = parsed.expiry.ifBlank { literal }, warnings = (warnings + parsed.warnings).distinct())
         }
         OCR_TARGET_EFFICACY -> {

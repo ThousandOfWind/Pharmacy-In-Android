@@ -61,6 +61,49 @@ class OcrRulesTest {
         assertTrue(mixed.warnings.any { it.contains("规格") })
     }
 
+    @Test fun boxColumnsAndIdentityAliasesRetainValuesWithoutGuessingDatesOrStock() {
+        val c = extractCandidates("""
+            商标：新红康
+            规格：0.25g(25万单位)
+            每盒20粒
+            深圳万和制药有限公司
+            药品上市许可持有人/生产企业:深圳万和制药有限公司
+            产品批号:
+            生产日期:
+            有效期至:
+            O 22603005
+            20260303
+            2029年02月
+        """.trimIndent())
+        assertEquals("新红康", c.information.brandName)
+        assertEquals("0.25g(25万单位)；每盒20粒", c.information.specification)
+        assertEquals("深圳万和制药有限公司", c.information.manufacturer)
+        assertEquals("O 22603005", c.information.batchNumber)
+        assertEquals("2029-02", c.expiry)
+        assertEquals("2029-02", extractCandidates("生产日期：\n有效期至：\n20260303\n2029 年 02 月").expiry)
+        assertEquals("2029-02-28", regionCandidates("20290228", OCR_TARGET_EXPIRY).expiry)
+        assertEquals("", extractCandidates("2029年02月\n生产日期：20260303").expiry)
+        assertEquals("", extractCandidates("生产日期：\n有效期至：\n20260303").expiry)
+        assertEquals("", extractCandidates("生产日期：\n有效期至：\n20260303\n20290230").expiry)
+        assertEquals("", extractCandidates("生产日期：\n有效期至：\n20260303\n20290228\n20300101").expiry)
+        assertEquals("", regionCandidates("产品批号：20290228", OCR_TARGET_EXPIRY).expiry)
+        assertEquals("示例药业有限公司", extractCandidates("生产企业 示例药业有限公司").information.manufacturer)
+        assertEquals("示例品牌", extractCandidates("品牌名称：\n示例品牌").information.brandName)
+        assertEquals("", extractCandidates("新红康\n每日20粒\n一次0.25g").information.brandName)
+        assertEquals("", extractCandidates("每日20粒\n一次0.25g").information.specification)
+        val draft = fillEmptyOcrFields(MedicineDraft(candidates = c))
+        assertEquals(c.information, draft.information)
+        assertEquals("", draft.quantity)
+        assertEquals("", draft.unit)
+        val assigned = assignOcrText(MedicineDraft(reviewed = true), "新红康", MedicineInformationField.BRAND_NAME.column)
+        assertEquals("新红康", assigned.information.brandName)
+        assertFalse(assigned.reviewed)
+        assertEquals(assigned, assignOcrText(assigned, "其他品牌", MedicineInformationField.BRAND_NAME.column))
+        assertEquals(MedicineDraft(), assignOcrText(MedicineDraft(), "一行\n另一行", MedicineInformationField.MANUFACTURER.column))
+        assertEquals(MedicineDraft(), assignOcrText(MedicineDraft(), "生产日期：20260303", OCR_TARGET_EXPIRY))
+        assertEquals("2029-02", assignOcrText(MedicineDraft(), "2029年02月", OCR_TARGET_EXPIRY).expiry)
+    }
+
     @Test fun regionSelectionClampsToPhotoAndExplicitFieldDoesNotInventDates() {
         val r = OcrRegion.between(.8f, .9f, -.1f, .2f)
         assertEquals(OcrRegion(0f, .2f, .8f, .9f), r)
@@ -78,7 +121,39 @@ class OcrRulesTest {
         assertEquals("一次4粒", regionCandidates("一次4粒", MedicineInformationField.USAGE_AND_DOSAGE.column).information.usageAndDosage)
     }
 
+    @Test fun tagSuggestionsRequireAffirmativeSectionEvidenceAndExplicitAdoption() {
+        val c = extractCandidates("""
+            药品名称：感冒止痛片
+            【适应症】用于感冒引起的发热、头痛。
+            【用法用量】口服。一次一片。
+            【禁忌】过敏性鼻炎患者禁用，皮肤过敏者忌用。
+            【贮藏】遮光保存。无需冷藏。
+        """.trimIndent())
+        assertEquals(listOf("感冒相关", "退热", "止痛", "口服", "避光保存"), c.tagSuggestions.map { it.tag })
+        assertEquals("用于感冒引起的发热、头痛", c.tagSuggestions.first().evidence)
+        assertTrue(extractCandidates("感冒止痛片\n【禁忌】过敏性鼻炎\n【注意事项】不得口服，需冷藏").tagSuggestions.isEmpty())
+        assertTrue(extractCandidates("【适应症】不用于感冒。\n【用法用量】禁止外用。\n【贮藏】不需冷藏。").tagSuggestions.isEmpty())
+        val cold = extractCandidates("【贮藏】冷藏保存。\n【用法用量】外用。")
+        assertEquals(listOf("外用", "需冷藏"), cold.tagSuggestions.map { it.tag })
+        val draft = MedicineDraft(candidates = c, reviewed = true, tags = listOf("自定义"))
+        assertEquals(listOf("自定义"), fillEmptyOcrFields(draft).tags) // Ordinary field adoption doesn't add tags.
+        val tagged = applyOcrTag(draft, "口服")
+        assertEquals(listOf("自定义", "口服"), tagged.tags)
+        assertFalse(tagged.reviewed)
+        assertEquals(tagged, applyOcrTag(tagged, "口服"))
+        assertEquals(draft, applyOcrTag(draft, "家庭常备"))
+        val full = draft.copy(tags = (1..8).map { "标签$it" })
+        assertEquals(full, applyOcrTag(full, "口服"))
+        assertTrue(mergeRegionCandidates(c, OcrCandidates(information = MedicineInformation(storageConditions = "常温保存")),
+            MedicineInformationField.STORAGE_CONDITIONS.column).tagSuggestions.none { it.tag == "避光保存" })
+        assertTrue(mergePhotoCandidates(c, cold).tagSuggestions.any { it.tag == "需冷藏" })
+    }
+
     @Test fun applyingCandidatesOnlyFillsBlanksAndNeverSetsStockOrLocation() {
+        val saved = MedicineDraft(id = 1, rawText = "历史原文", reviewed = true)
+        assertFalse(hasCurrentOcrResults(saved, saved))
+        assertTrue(hasCurrentOcrResults(saved.copy(rawText = "历史原文\n新识别"), saved))
+        assertTrue(hasCurrentOcrResults(saved.copy(candidates = OcrCandidates(expiry = "2029-02")), saved))
         val c = OcrCandidates(name = "候选名", expiry = "2028-06", efficacy = "包装原文",
             information = MedicineInformation(brandName = "候选品牌", specification = "0.35g", usageAndDosage = "一次4粒", storageLocation = "不能推断位置"))
         val draft = MedicineDraft(name = "手工名称", quantity = "3", unit = "盒", reviewed = true,

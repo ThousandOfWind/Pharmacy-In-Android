@@ -12,12 +12,18 @@ private fun key(value: String): String = value.replace(Regex("\\s+"), "")
 private val fieldsByLabel = mapOf(
     "通用名称" to MedicineInformationField.GENERIC_NAME, "通用名" to MedicineInformationField.GENERIC_NAME,
     "商品名称" to MedicineInformationField.BRAND_NAME, "商品名" to MedicineInformationField.BRAND_NAME,
-    "品牌" to MedicineInformationField.BRAND_NAME,
+    "品牌" to MedicineInformationField.BRAND_NAME, "商标" to MedicineInformationField.BRAND_NAME,
+    "注册商标" to MedicineInformationField.BRAND_NAME, "品牌名称" to MedicineInformationField.BRAND_NAME,
     "规格" to MedicineInformationField.SPECIFICATION, "包装" to MedicineInformationField.SPECIFICATION,
     "生产厂家" to MedicineInformationField.MANUFACTURER, "生产企业" to MedicineInformationField.MANUFACTURER,
-    "企业名称" to MedicineInformationField.MANUFACTURER,
+    "企业名称" to MedicineInformationField.MANUFACTURER, "厂家" to MedicineInformationField.MANUFACTURER,
+    "制造商" to MedicineInformationField.MANUFACTURER, "生产商" to MedicineInformationField.MANUFACTURER,
+    "药品上市许可持有人/生产企业" to MedicineInformationField.MANUFACTURER,
+    "药品上市许可持有人／生产企业" to MedicineInformationField.MANUFACTURER,
+    "上市许可持有人/生产企业" to MedicineInformationField.MANUFACTURER,
     "批准文号" to MedicineInformationField.APPROVAL_NUMBER,
-    "生产批号" to MedicineInformationField.BATCH_NUMBER, "批号" to MedicineInformationField.BATCH_NUMBER,
+    "生产批号" to MedicineInformationField.BATCH_NUMBER, "产品批号" to MedicineInformationField.BATCH_NUMBER,
+    "批号" to MedicineInformationField.BATCH_NUMBER,
     "成分" to MedicineInformationField.INGREDIENTS, "成份" to MedicineInformationField.INGREDIENTS,
     "用法用量" to MedicineInformationField.USAGE_AND_DOSAGE,
     "禁忌" to MedicineInformationField.CONTRAINDICATIONS,
@@ -34,6 +40,49 @@ private val expiryLabels = setOf("有效期至", "有效日期", "失效日期",
 private val knownLabels = fieldsByLabel.keys + stopLabels + indicationLabels + expiryLabels
 private data class Section(val label: String, val text: String)
 
+/** A literal date only: compact printing and spaces are common, but batch/MFG context is not a date. */
+fun parseOcrDate(text: String): String? {
+    val value = text.replace(Regex("\\s+"), "")
+    val compact = Regex("^(20\\d{2})(\\d{2})(\\d{2})$").matchEntire(value)
+    val separated = Regex("^(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2}))?月?日?$").matchEntire(value)
+    val match = compact ?: separated ?: return null
+    val date = "${match.groupValues[1]}-${match.groupValues[2].padStart(2, '0')}" +
+        match.groupValues[3].takeIf(String::isNotBlank)?.let { "-${it.padStart(2, '0')}" }.orEmpty()
+    return date.takeIf { expiryDay(it) != null }
+}
+
+/** Some OCR blocks read the entire label column before the value column. Only pair a complete,
+ * typed batch/MFG/expiry group; an incomplete group must not bind its first value to expiry. */
+private fun alignDateColumns(text: String): String {
+    val columnLabels = setOf("产品批号", "生产批号", "批号", "生产日期") + expiryLabels
+    fun label(line: String) = key(line.trim().removeSuffix(":").removeSuffix("："))
+    val input = text.lines()
+    val output = mutableListOf<String>()
+    var i = 0
+    while (i < input.size) {
+        val labels = input.drop(i).takeWhile { label(it) in columnLabels }.map(::label)
+        if (labels.size >= 2 && labels.any { it in expiryLabels }) {
+            val values = input.drop(i + labels.size).take(labels.size).map(String::trim)
+            val complete = labels.distinct().size == labels.size && values.size == labels.size &&
+                labels.zip(values).all { (heading, value) ->
+                    if (heading == "生产日期" || heading in expiryLabels) parseOcrDate(value) != null
+                    else Regex("[A-Za-z0-9][A-Za-z0-9 ]{0,39}").matches(value)
+                } && parseOcrDate(input.getOrNull(i + labels.size * 2).orEmpty()) == null
+            if (complete) {
+                output += labels.zip(values).map { (heading, value) -> "$heading：$value" }
+                i += labels.size * 2
+            } else {
+                output += input.subList(i, i + labels.size)
+                output += "【分列日期待核对】" // Stop expiry from taking the batch or manufacturing value.
+                i += labels.size
+            }
+        } else {
+            output += input[i++]
+        }
+    }
+    return output.joinToString("\n")
+}
+
 /** Bracket headings always stop the previous section, including unknown headings. */
 private fun sections(text: String): List<Section> {
     val output = mutableListOf<Section>()
@@ -45,27 +94,37 @@ private fun sections(text: String): List<Section> {
         active = null; singleValue = false; lines.clear()
     }
     val heading = Regex("[【\\[][^】\\]]+[】\\]]")
-    val sourceLines = text.lines().flatMap { original ->
+    val sourceLines = alignDateColumns(text).lines().flatMap { original ->
         val starts = (listOf(0) + heading.findAll(original).map { it.range.first }.toList() + original.length).distinct().sorted()
         starts.zipWithNext { start, end -> original.substring(start, end) }
     }
     sourceLines.forEach { original ->
         val value = original.trim()
         val bracket = Regex("^[【\\[]([^】\\]]+)[】\\]]\\s*[:：]?\\s*(.*)$").find(value)
-        val colon = Regex("^([^:：]{1,20})[:：]\\s*(.*)$").find(value)
+        val colon = Regex("^[|｜I]?([^:：]{1,40})[:：]\\s*(.*)$").find(value)
         val bare = key(value).takeIf { it in knownLabels }
+        // Missing colons on short identity headings are common; keep the value verbatim.
+        val inlineIdentity = fieldsByLabel.keys.filter { fieldsByLabel[it]?.group == MedicineInformationGroup.IDENTITY }
+            .sortedByDescending(String::length).firstNotNullOfOrNull { heading ->
+                Regex("^" + heading.map { Regex.escape(it.toString()) }.joinToString("\\s*") + "\\s+(.+)$")
+                    .find(value)?.let { heading to it.groupValues[1] }
+            }
         val expiryHeading = Regex("^(有效期至|有效日期|失效日期|失效期|保质期至|EXP\\b)\\s*[:：]?\\s*(.*)$", RegexOption.IGNORE_CASE).find(value)
         val label = expiryHeading?.groupValues?.get(1)?.let { if (it.equals("exp", true)) "EXP" else key(it) }
             ?: bracket?.groupValues?.get(1)?.let(::key)
             ?: colon?.groupValues?.get(1)?.let(::key)?.takeIf { it in knownLabels }
-            ?: bare
+            ?: bare ?: inlineIdentity?.first
         if (label != null) {
             flush(); active = label
             singleValue = label in expiryLabels || fieldsByLabel[label]?.singleLine == true || colon != null && bracket == null
-            val initial = expiryHeading?.groupValues?.get(2) ?: bracket?.groupValues?.get(2) ?: colon?.groupValues?.get(2) ?: ""
+            val initial = expiryHeading?.groupValues?.get(2) ?: bracket?.groupValues?.get(2) ?: colon?.groupValues?.get(2) ?: inlineIdentity?.second ?: ""
             if (initial.isNotBlank()) lines += initial
             // Unbracketed inline labels have no trustworthy paragraph boundary on a box.
             if (singleValue && initial.isNotBlank()) flush()
+        } else if (active == null && Regex("每[盒瓶板袋支]\\s*\\d+(?:\\.\\d+)?\\s*(?:粒|片|袋|支|毫升|ml|mL)(?:[。.]|[/／][盒瓶板袋支])?").matches(value)) {
+            output += Section("包装", value)
+        } else if (active == null && Regex("[\\p{IsHan}·（）()]{4,60}(?:制药|药业|医药)[\\p{IsHan}·（）()]{0,20}公司").matches(value)) {
+            output += Section("生产厂家", value)
         } else if (active != null && value.isNotBlank()) {
             lines += original
             if (singleValue) flush()
@@ -108,8 +167,7 @@ fun extractCandidates(text: String): OcrCandidates {
     val name = named.singleOrNull().orEmpty()
     if (named.size > 1) warnings += "药名有多个候选，可能包含不同药品，请选择当前包装"
     val expiryValues = sections.filter { it.label in expiryLabels }.mapNotNull { section ->
-        val match = Regex("^(20\\d{2})[年./-](\\d{1,2})(?:[月./-](\\d{1,2}))?月?日?$", RegexOption.IGNORE_CASE).matchEntire(section.text.trim())
-        match?.let { m -> "${m.groupValues[1]}-${m.groupValues[2].padStart(2, '0')}" + m.groupValues[3].takeIf(String::isNotBlank)?.let { "-${it.padStart(2, '0')}" }.orEmpty() }?.takeIf { expiryDay(it) != null }
+        parseOcrDate(section.text)
     }.distinct()
     val expiry = expiryValues.singleOrNull().orEmpty()
     if (expiryValues.size > 1) warnings += "有效期出现多个不同日期，请核对当前包装"
@@ -121,5 +179,6 @@ fun extractCandidates(text: String): OcrCandidates {
     if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && information[it].isNotBlank() }) {
         warnings += "说明书可能有错字、漏字或断行；剂量、禁忌与贮藏条件必须逐项对照照片"
     }
-    return OcrCandidates(name, expiry, efficacy, information, (named + hints).distinct().filterNot { it == name }, warnings.distinct())
+    val candidates = OcrCandidates(name, expiry, efficacy, information, (named + hints).distinct().filterNot { it == name }, warnings.distinct())
+    return candidates.copy(tagSuggestions = suggestOcrTags(candidates))
 }

@@ -22,7 +22,8 @@ fun mergePhotoCandidates(previous: OcrCandidates, incoming: OcrCandidates): OcrC
         value.withValue(field, merge(field.label, previous.information[field], incoming.information[field]))
     }
     val names = (previous.nameOptions + incoming.nameOptions + listOf(previous.name, incoming.name)).filter(String::isNotBlank).distinct().filterNot { it == name }
-    return OcrCandidates(name, expiry, efficacy, info, names, warnings.distinct())
+    return OcrCandidates(name, expiry, efficacy, info, names, warnings.distinct(),
+        (previous.tagSuggestions + incoming.tagSuggestions).distinctBy { it.tag })
 }
 
 /** Region retries are field-specific. Empty/unusable results never erase earlier candidates. */
@@ -40,5 +41,5 @@ fun mergeRegionCandidates(previous: OcrCandidates, incoming: OcrCandidates, targ
             ) else previous
         }
     }
-    return merged.copy(warnings = (previous.warnings + incoming.warnings).distinct())
+    return merged.copy(warnings = (previous.warnings + incoming.warnings).distinct(), tagSuggestions = suggestOcrTags(merged))
 }
