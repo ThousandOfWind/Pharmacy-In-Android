@@ -28,6 +28,8 @@ class MainActivity : ComponentActivity() {
         viewModelFactory { initializer { MedicineViewModel(application, createSavedStateHandle()) } }
     }
 
+    private val updateViewModel by viewModels<AppUpdateViewModel>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -36,18 +38,19 @@ class MainActivity : ComponentActivity() {
                 primaryContainer = Color(0xFFD7EEE7), onPrimaryContainer = Color(0xFF123E37),
                 secondaryContainer = Color(0xFFEAF1ED), background = Color(0xFFF7F9F6),
                 surface = Color(0xFFF7F9F6), surfaceVariant = Color(0xFFEAF1ED)
-            )) { MedicineApp(viewModel) }
+            )) { MedicineApp(viewModel, updateViewModel) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MedicineApp(viewModel: MedicineViewModel) {
+fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     var showAdd by rememberSaveable { mutableStateOf(false) }
+    var showUpdate by rememberSaveable { mutableStateOf(false) }
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf("") }
 
@@ -101,9 +104,10 @@ fun MedicineApp(viewModel: MedicineViewModel) {
                     if (state.session.screen != Screen.CABINET) TextButton(onClick = ::back, enabled = !state.busy) { Text("返回") }
                 },
                 actions = {
-                    if (state.session.screen == Screen.CABINET) TextButton(
-                        onClick = { showAdd = true }, enabled = state.loaded && state.databaseError == null
-                    ) { Text("＋ 添加") }
+                    if (state.session.screen == Screen.CABINET) {
+                        TextButton(onClick = { showUpdate = true }) { Text("更新") }
+                        TextButton(onClick = { showAdd = true }, enabled = state.loaded && state.databaseError == null) { Text("＋ 添加") }
+                    }
                 }
             )
         },
@@ -135,6 +139,7 @@ fun MedicineApp(viewModel: MedicineViewModel) {
             }
         }
     }
+    if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
     if (showAdd) AlertDialog(
         onDismissRequest = { showAdd = false },
         title = { Text("添加到药箱") },
