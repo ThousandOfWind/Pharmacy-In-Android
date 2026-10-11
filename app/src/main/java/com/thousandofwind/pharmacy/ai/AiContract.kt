@@ -17,10 +17,10 @@ import java.net.URI
 fun connectionError(value: AzureConnection): String? {
     val uri = runCatching { URI(value.endpoint.trim()) }.getOrNull()
     return when {
-        uri == null || uri.scheme != "https" || uri.host == null || uri.rawUserInfo != null || uri.port != -1 ||
+        uri == null || !uri.scheme.equals("https", ignoreCase = true) || uri.host == null || uri.rawUserInfo != null || uri.port != -1 ||
             uri.rawQuery != null || uri.rawFragment != null || uri.path !in listOf("", "/") -> "填写 Azure 资源的 HTTPS 根地址，不含路径、参数或端口"
         !listOf(".openai.azure.com", ".cognitiveservices.azure.com", ".services.ai.azure.com").any { suffix ->
-            uri.host.endsWith(suffix) && uri.host.removeSuffix(suffix).matches(Regex("[A-Za-z0-9-]+"))
+            uri.host.endsWith(suffix, ignoreCase = true) && uri.host.dropLast(suffix.length).matches(Regex("[A-Za-z0-9-]+"))
         } -> "仅支持 Azure 公有云资源地址（如 https://资源名.openai.azure.com）"
         value.deployment in setOf(".", "..") || !value.deployment.matches(Regex("[A-Za-z0-9_.-]{1,100}")) -> "deployment 名称为 1–100 个字母、数字或 ._-，不是模型显示名称"
         value.api == AzureApi.DEPLOYMENT && !value.apiVersion.matches(Regex("20\\d{2}-\\d{2}-\\d{2}(-preview)?")) -> "API version 请填 YYYY-MM-DD 或 YYYY-MM-DD-preview"

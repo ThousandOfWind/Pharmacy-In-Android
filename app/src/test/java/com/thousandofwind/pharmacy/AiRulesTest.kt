@@ -15,6 +15,7 @@ class AiRulesTest {
         assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com.evil.test", "deploy")))
         assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com@evil.test", "deploy")))
         assertNotNull(connectionError(AzureConnection("http://resource.openai.azure.com", "deploy")))
+        assertNull(connectionError(AzureConnection("HTTPS://RESOURCE.OPENAI.AZURE.COM", "deploy")))
         assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com", "../deploy")))
         listOf(".", "..").forEach { assertNotNull(connectionError(AzureConnection("https://resource.openai.azure.com", it))) }
         for (api in AzureApi.entries) {

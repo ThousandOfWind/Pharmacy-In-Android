@@ -52,7 +52,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun save(config: AzureConnection, enteredKey: String, done: () -> Unit) {
         if (state.value.busy) return
-        val clean = config.copy(endpoint = config.endpoint.trim().trimEnd('/'), deployment = config.deployment.trim(), apiVersion = config.apiVersion.trim())
+        val clean = config.copy(endpoint = config.endpoint.trim().trimEnd('/').lowercase(java.util.Locale.ROOT), deployment = config.deployment.trim(), apiVersion = config.apiVersion.trim())
         val error = connectionError(clean)
         if (error != null) { state.update { it.copy(error = error) }; return }
         if (enteredKey.isBlank() && (!state.value.hasKey || clean.endpoint != state.value.config.endpoint)) {
