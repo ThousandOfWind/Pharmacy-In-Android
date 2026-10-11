@@ -21,6 +21,10 @@ class PhotoRetentionTest {
         assertEquals(listOf("new-leaflet") + old, retainedMedicinePhotos(draft, old, "new-leaflet", true))
         assertEquals(listOf("expiry"), retainedMedicinePhotos(draft, old, "expiry", false))
         assertEquals(listOf("new-leaflet"), retainedMedicinePhotos(draft, old, "new-leaflet", false))
+        val duplicateAlbum = listOf("front", "expiry", "front", "expiry")
+        assertEquals(duplicateAlbum, retainedMedicinePhotos(duplicateAlbum, duplicateAlbum, "front", true))
+        assertEquals(listOf("expiry", "front", "front", "expiry"),
+            retainedMedicinePhotos(duplicateAlbum, duplicateAlbum, "expiry", true))
     }
 
     @Test fun cleanupProtectsSharedSavedDraftAndUndoPhotos() {

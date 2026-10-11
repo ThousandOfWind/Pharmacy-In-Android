@@ -7,7 +7,10 @@ fun retainedMedicinePhotos(
     photos: List<String>, existing: List<String>, cover: String, keepExisting: Boolean
 ): List<String> {
     val selected = cover.takeIf { it in photos } ?: photos.firstOrNull() ?: return emptyList()
-    return (listOf(selected) + if (keepExisting) existing else emptyList()).distinct()
+    if (!keepExisting) return listOf(selected)
+    val index = existing.indexOf(selected)
+    // Move just one occurrence to the front, preserving legal backup order and multiplicity.
+    return if (index == 0) existing else listOf(selected) + existing.filterIndexed { i, _ -> i != index }
 }
 
 fun unreferencedPhotos(candidates: List<String>, protected: Collection<String>): List<String> {

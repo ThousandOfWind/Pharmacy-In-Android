@@ -399,7 +399,9 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 if (error is CancellationException) throw error
                 if (generation == scanGeneration) report("照片读取或识别失败，可补拍或手动填写")
             } finally {
-                if (generation != scanGeneration) imported?.let { cleanupPhotos(listOf(it)) }
+                if (generation != scanGeneration) imported?.let {
+                    if (!cleanupPhotos(listOf(it))) report("已取消识别；部分临时照片清理失败")
+                }
                 withContext(Dispatchers.IO) { PhotoStore.deleteCameraCapture(getApplication(), source) }
                 if (generation == scanGeneration) scanning.value = false
             }
