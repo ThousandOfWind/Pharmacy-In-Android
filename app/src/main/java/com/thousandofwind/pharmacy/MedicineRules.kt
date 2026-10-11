@@ -47,7 +47,9 @@ fun normalizeMedicineTags(tags: List<String>): List<String> = tags.map(String::t
 fun medicineTagsError(tags: List<String>): String? {
     val normalized = normalizeMedicineTags(tags)
     return when {
-        normalized.any { it.length > MAX_TAG_LENGTH || it.any(Char::isISOControl) } -> "每个标签最多 $MAX_TAG_LENGTH 个字符，不能包含换行或控制字符"
+        normalized.any { tag ->
+            tag.length > MAX_TAG_LENGTH || tag.any { it.isISOControl() || it == '\u2028' || it == '\u2029' }
+        } -> "每个标签最多 $MAX_TAG_LENGTH 个字符，不能包含换行或控制字符"
         normalized.size > MAX_MEDICINE_TAGS -> "每条药品最多 $MAX_MEDICINE_TAGS 个标签"
         else -> null
     }

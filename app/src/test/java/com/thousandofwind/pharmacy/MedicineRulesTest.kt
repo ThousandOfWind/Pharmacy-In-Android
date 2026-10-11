@@ -37,7 +37,9 @@ class MedicineRulesTest {
         assertNotNull(medicineTagsError(List(MAX_MEDICINE_TAGS + 1) { "标签$it" }))
         assertNull(medicineTagsError(listOf("字".repeat(MAX_TAG_LENGTH))))
         assertNotNull(medicineTagsError(listOf("字".repeat(MAX_TAG_LENGTH + 1))))
-        assertNotNull(medicineTagsError(listOf("冷藏\n保存")))
+        listOf("冷藏\n保存", "冷藏\u2028保存", "冷藏\u2029保存").forEach {
+            assertNotNull(medicineTagsError(listOf(it)))
+        }
     }
 
     @Test fun tagFilterIsExactAndIntersectsTextSearch() {
