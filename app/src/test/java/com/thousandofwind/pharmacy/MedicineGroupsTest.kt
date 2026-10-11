@@ -29,5 +29,10 @@ class MedicineGroupsTest {
         assertEquals(resolved.first().groupKey, resolved.last().groupKey)
         assertEquals(resolved, resolveBackupGroups(input, mapOf(key to "用户修改的分组", resolved.first().groupKey to "药组A")))
         assertEquals(BackupDocument(1, resolved), decodeBackup(encodeBackup(BackupDocument(1, resolved))))
+        val candidate = java.util.UUID.nameUUIDFromBytes("pharmacy-group:$key:药组A:0".toByteArray()).toString()
+        val withCollision = input + BackupRecord("药C", groupKey = candidate, groupName = "药组A")
+        val separated = resolveBackupGroups(withCollision, mapOf(key to "其他组"))
+        assertNotEquals(separated.first().groupKey, separated.last().groupKey)
+        assertEquals(candidate, separated.last().groupKey)
     }
 }
