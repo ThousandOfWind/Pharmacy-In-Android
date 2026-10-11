@@ -87,6 +87,7 @@ class OcrRulesTest {
         }
         assertEquals("2029-02-28", extractCandidates("有效期至：2029年02月28日").expiry)
         assertEquals("2029-02-28", regionCandidates("20290228", OCR_TARGET_EXPIRY).expiry)
+        assertEquals("2029-02", extractCandidates("产品批号：\n生产日期：\nexp:\nAB-2026/03\n20260303\n2029-02").expiry)
         assertEquals("2029-02", extractCandidates("产品批号：\n生产日期：\n有效期至：\nAB-2026/03\n20260303\n2029年02月").expiry)
         val holder = extractCandidates("药品上市许可持有人：不同持有人有限公司\n生产企业：实际药业有限公司")
         assertEquals("实际药业有限公司", holder.information.manufacturer)
@@ -169,6 +170,7 @@ class OcrRulesTest {
         assertFalse(hasCurrentOcrResults(saved, saved))
         assertFalse(requiresOcrConfirmation(saved, saved))
         val photoOnly = MedicineDraft(id = 1, photos = listOf("photo"), reviewed = true)
+        assertTrue(requiresOcrConfirmation(photoOnly.copy(photos = listOf("photo", "new"), reviewed = false), photoOnly))
         assertTrue(requiresOcrConfirmation(photoOnly.copy(photos = listOf("rotated"), reviewed = false), photoOnly))
         assertTrue(requiresOcrConfirmation(photoOnly.copy(photos = emptyList(), reviewed = false), photoOnly))
         assertFalse(requiresOcrConfirmation(photoOnly.copy(photos = emptyList(), reviewed = true), photoOnly))

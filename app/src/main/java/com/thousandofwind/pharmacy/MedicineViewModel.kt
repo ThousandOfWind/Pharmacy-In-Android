@@ -356,7 +356,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 val context = getApplication<Application>()
                 val localPhoto = withContext(Dispatchers.IO) { PhotoStore.importPhoto(context, source) }
                 if (generation != scanGeneration) return@launch
-                updateDraft { copy(photos = photos + localPhoto) }
+                updateDraft { copy(photos = photos + localPhoto, reviewed = false) }
                 val text = recognize(Uri.parse(localPhoto))
                 if (generation != scanGeneration) return@launch
                 if (text.isBlank()) { report("未识别到文字。照片已保留，可补拍或手动填写。"); return@launch }
@@ -419,7 +419,10 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 }
                 val text = recognize(InputImage.fromBitmap(cropped, 0))
                 if (generation != scanGeneration) return@launch
-                if (text.isBlank()) { report("框选中未识别到文字，原候选已保留，请重画或补拍"); done(false); return@launch }
+                if (text.isBlank()) {
+                    report(if (target == OCR_TARGET_ALL) "整图未识别到文字，原候选已保留，可旋转、框选或补拍" else "框选中未识别到文字，原候选已保留，请重画或补拍")
+                    done(false); return@launch
+                }
                 val combined = appendOcrText(session.value.draft.rawText, text)
                 if (combined == null) { report("累计识别原文超过 50000 字符，本次结果未采用；原图和原候选保留。"); done(false); return@launch }
                 val incoming = if (target == OCR_TARGET_ALL) extractCandidates(text) else regionCandidates(text, target)
@@ -429,7 +432,10 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 done(true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (generation == scanGeneration) { report("框选识别失败，请重试或补拍"); done(false) }
+                if (generation == scanGeneration) {
+                    report(if (target == OCR_TARGET_ALL) "整图识别失败，原候选已保留，请重试或补拍" else "框选识别失败，请重试或补拍")
+                    done(false)
+                }
             } finally { if (generation == scanGeneration) scanning.value = false }
         }
     }

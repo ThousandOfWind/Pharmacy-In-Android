@@ -57,7 +57,10 @@ fun parseOcrDate(text: String): String? {
  * typed batch/MFG/expiry group; an incomplete group must not bind its first value to expiry. */
 private fun alignDateColumns(text: String): String {
     val columnLabels = setOf("产品批号", "生产批号", "批号", "生产日期") + expiryLabels
-    fun label(line: String) = key(line.trim().replace(Regex("^[|｜I]"), "").removeSuffix(":").removeSuffix("："))
+    fun label(line: String): String {
+        val normalized = key(line.trim().replace(Regex("^[|｜I]"), "").removeSuffix(":").removeSuffix("："))
+        return if (normalized.equals("EXP", true)) "EXP" else normalized
+    }
     val input = text.lines()
     val output = mutableListOf<String>()
     var i = 0
