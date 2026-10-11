@@ -22,7 +22,7 @@ import coil.compose.AsyncImage
 
 @Composable
 fun CabinetScreen(
-    state: UiState, search: (String) -> Unit, filter: (CabinetFilter) -> Unit,
+    state: UiState, search: (String) -> Unit, filter: (CabinetFilter) -> Unit, filterTag: (String?) -> Unit,
     add: () -> Unit, open: (MedicineEntity) -> Unit
 ) {
     val rows = state.visible
@@ -34,13 +34,22 @@ fun CabinetScreen(
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("找到家里的药，也记住它们的有效期。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
-            value = state.session.search, onValueChange = search, label = { Text("搜索药品名称、包装功效或备注") },
+            value = state.session.search, onValueChange = search, label = { Text("搜索名称、标签、包装功效或备注") },
             singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
             trailingIcon = { if (state.session.search.isNotEmpty()) TextButton(onClick = { search("") }) { Text("清除") } }
         )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             CabinetFilter.entries.forEach { entry ->
                 FilterChip(selected = state.session.filter == entry, onClick = { filter(entry) }, label = { Text(entry.label) })
+            }
+        }
+        val tags = normalizeMedicineTags(state.availableTags + listOfNotNull(state.session.tag))
+        if (tags.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = state.session.tag == null, onClick = { filterTag(null) }, label = { Text("全部标签") })
+                tags.forEach { tag ->
+                    FilterChip(selected = tag.equals(state.session.tag, ignoreCase = true), onClick = { filterTag(tag) }, label = { Text(tag) })
+                }
             }
         }
         when {
@@ -62,7 +71,7 @@ fun CabinetScreen(
             }
             rows.isEmpty() -> {
                 Text("没有符合条件的药品", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { search(""); filter(CabinetFilter.ALL) }) { Text("查看全部药品") }
+                TextButton(onClick = { search(""); filter(CabinetFilter.ALL); filterTag(null) }) { Text("查看全部药品") }
             }
             else -> {
                 Text("${rows.size} 条库存记录", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -92,6 +101,7 @@ private fun MedicineCard(item: MedicineEntity, highlighted: Boolean, open: () ->
                 Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 ExpiryLabel(item.expiryDate)
                 Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.bodyMedium)
+                if (item.tags().isNotEmpty()) MedicineTags(item.tags(), limit = 3)
             }
             Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
