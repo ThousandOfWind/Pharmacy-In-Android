@@ -48,17 +48,27 @@ fun DetailScreen(
                 Button(onClick = { stock = true }, enabled = !busy) { Text("更新余量") }
             }
         }
-        if (item.efficacy.isNotBlank()) {
-            Text("包装上的功效文字", style = MaterialTheme.typography.titleSmall)
-            Text(item.efficacy)
-            Text("包装文字记录，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(onClick = edit, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("编辑资料 / 补拍照片") }
+        if (item.information.searchableValues().any(String::isNotBlank)) {
+            Text("药品资料", style = MaterialTheme.typography.titleMedium)
+            MedicineInformationDetails(item.information, MedicineInformationGroup.IDENTITY)
         }
+        Text("说明书记录", style = MaterialTheme.typography.titleMedium)
+        LeafletDisclaimer()
+        if (item.efficacy.isNotBlank()) {
+            Text("适应症 / 功能主治（原文）", style = MaterialTheme.typography.titleSmall)
+            Text(item.efficacy)
+        }
+        val hasLeaflet = MedicineInformationField.entries.any {
+            it.group == MedicineInformationGroup.LEAFLET && item.information[it].isNotBlank()
+        }
+        if (item.efficacy.isBlank() && !hasLeaflet) Text("尚未记录说明书，可编辑填写或补拍说明书照片。")
+        MedicineInformationDetails(item.information, MedicineInformationGroup.LEAFLET)
         if (item.notes.isNotBlank()) { Text("备注", style = MaterialTheme.typography.titleSmall); Text(item.notes) }
         if (item.ocrRawText.isNotBlank()) {
             TextButton(onClick = { raw = !raw }) { Text(if (raw) "收起识别原文" else "查看识别原文") }
             if (raw) Text(item.ocrRawText, style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = edit, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("编辑资料 / 补拍照片") }
         TextButton(onClick = { confirmRemove = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("移出药箱", color = MaterialTheme.colorScheme.error) }
     }
     if (stock) StockDialog(item, busy, { stock = false }, updateStock)

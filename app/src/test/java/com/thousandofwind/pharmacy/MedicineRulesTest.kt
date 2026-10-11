@@ -57,6 +57,39 @@ class MedicineRulesTest {
         assertFalse(matches("示例", "外用", emptyList()))
     }
 
+    @Test fun informationFieldsRemainIndependentAndPreserveMultilineLeafletText() {
+        assertNull(medicineInformationError(MedicineInformation()))
+        val populated = MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
+            info.withValue(field, " ${field.column} ")
+        }
+        MedicineInformationField.entries.forEach { field ->
+            assertEquals(" ${field.column} ", populated[field])
+            assertEquals(field.column, populated.trimmed()[field])
+        }
+        val changed = populated.withValue(MedicineInformationField.CONTRAINDICATIONS, " 第一行\n第二行 ").trimmed()
+        assertEquals("第一行\n第二行", changed.contraindications)
+        assertEquals("brand_name", changed.brandName)
+        assertEquals("usage_and_dosage", changed.usageAndDosage)
+        assertEquals("", changed.withValue(MedicineInformationField.BRAND_NAME, "").brandName)
+    }
+
+    @Test fun informationLimitsRejectRatherThanTruncateAndSearchOnlyIdentityFields() {
+        MedicineInformationField.entries.forEach { field ->
+            assertNull(medicineInformationFieldError(field, "字".repeat(field.maxLength)))
+            assertNotNull(medicineInformationFieldError(field, "字".repeat(field.maxLength + 1)))
+        }
+        listOf("A\nB", "A\u2028B", "A\u2029B").forEach {
+            assertNotNull(medicineInformationFieldError(MedicineInformationField.BRAND_NAME, it))
+        }
+        assertNull(medicineInformationFieldError(MedicineInformationField.USAGE_AND_DOSAGE, "原文\n分行"))
+        val info = MedicineInformation(genericName = "GenericProbe", brandName = "BrandProbe", manufacturer = "MakerProbe",
+            storageLocation = "DrawerProbe", contraindications = "ContraindicationOnly")
+        fun matches(query: String, tag: String? = null) = matchesMedicineTextAndTag("记录名称", "", "", listOf("外用"), query, tag, info.searchableValues())
+        listOf("genericprobe", "brandprobe", "makerprobe", "drawerprobe").forEach { assertTrue(matches(it, "外用")) }
+        assertFalse(matches("BrandProbe", "口服"))
+        assertFalse(matches("ContraindicationOnly")) // Safety text is not a use/indication search result.
+    }
+
     @Test fun ocrExtractsOnlyExplicitlyLabelledCandidates() {
         val candidates = extractCandidates("商标\n通用名称：示例药片\n生产日期：2025-01-01\n有效期至：2028年6月30日\n功能主治：包装文字")
         assertEquals("示例药片", candidates.name)

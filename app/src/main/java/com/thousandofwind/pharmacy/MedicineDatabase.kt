@@ -5,6 +5,7 @@ import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
@@ -30,7 +31,8 @@ data class MedicineEntity(
     @ColumnInfo(name = "quantity_unit", defaultValue = "''") val quantityUnit: String = "",
     @ColumnInfo(name = "photos_json", defaultValue = "'[]'") val photosJson: String = "[]",
     @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = 0,
-    @ColumnInfo(name = "tags_json", defaultValue = "'[]'") val tagsJson: String = "[]"
+    @ColumnInfo(name = "tags_json", defaultValue = "'[]'") val tagsJson: String = "[]",
+    @Embedded(prefix = "info_") val information: MedicineInformation = MedicineInformation()
 ) {
     fun tags(): List<String> = decodeTags(tagsJson)
 
@@ -66,7 +68,7 @@ interface MedicineDao {
     suspend fun delete(id: Long)
 }
 
-@Database(entities = [MedicineEntity::class], version = 4, exportSchema = false)
+@Database(entities = [MedicineEntity::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun medicineDao(): MedicineDao
 
@@ -86,11 +88,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Keep this historical column list fixed even if future versions add more fields.
+                listOf(
+                    "generic_name", "brand_name", "specification", "manufacturer", "approval_number",
+                    "batch_number", "storage_location", "ingredients", "usage_and_dosage", "contraindications",
+                    "adverse_reactions", "precautions", "interactions", "storage_conditions", "leaflet_source"
+                ).forEach { column ->
+                    db.execSQL("ALTER TABLE medicines ADD COLUMN info_$column TEXT NOT NULL DEFAULT ''")
+                }
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "pharmacy.db")
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 // Intentionally no destructive fallback: an unsupported migration must not erase the cabinet.
                 .build().also { instance = it }
         }

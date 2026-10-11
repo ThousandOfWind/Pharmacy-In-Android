@@ -43,7 +43,8 @@ data class MedicineDraft(
     val candidates: OcrCandidates = OcrCandidates(),
     val reviewed: Boolean = false,
     val tags: List<String> = emptyList(),
-    val tagInput: String = ""
+    val tagInput: String = "",
+    val information: MedicineInformation = MedicineInformation()
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
@@ -53,6 +54,9 @@ data class MedicineDraft(
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
         putStringArrayList("tags", ArrayList(tags)); putString("tagInput", tagInput)
+        putBundle("information", Bundle().apply {
+            MedicineInformationField.entries.forEach { field -> putString(field.column, information[field]) }
+        })
     }
 
     companion object {
@@ -64,7 +68,10 @@ data class MedicineDraft(
                 it.getStringArrayList("photos")?.toList().orEmpty(), it.getString("rawText").orEmpty(),
                 OcrCandidates(it.getString("candidateName").orEmpty(), it.getString("candidateExpiry").orEmpty(), it.getString("candidateEfficacy").orEmpty()),
                 it.getBoolean("reviewed"),
-                normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty()
+                normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty(),
+                MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
+                    info.withValue(field, it.getBundle("information")?.getString(field.column).orEmpty())
+                }
             )
         } ?: MedicineDraft()
     }
@@ -93,7 +100,8 @@ data class UiState(
     val selected get() = medicines.firstOrNull { it.id == session.selectedId }
     val availableTags get() = normalizeMedicineTags(medicines.flatMap { it.tags() }).sorted()
     val visible get() = medicines.filter { item ->
-        matchesMedicineTextAndTag(item.name, item.efficacy, item.notes, item.tags(), session.search, session.tag) &&
+        matchesMedicineTextAndTag(item.name, item.efficacy, item.notes, item.tags(), session.search, session.tag,
+            item.information.searchableValues()) &&
             when (session.filter) {
                 CabinetFilter.ALL -> true
                 CabinetFilter.SOON -> expiryStatus(item.expiryDate) == ExpiryStatus.SOON
@@ -169,7 +177,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             id = item.id, name = item.name, expiry = item.expiryDate,
             quantity = item.remainingQuantity?.toString().orEmpty(), unit = item.quantityUnit,
             efficacy = item.efficacy, notes = item.notes, photos = item.photos(), rawText = item.ocrRawText,
-            reviewed = true, tags = item.tags()
+            reviewed = true, tags = item.tags(), information = item.information
         )
         change { copy(screen = Screen.EDITOR, selectedId = item.id, draft = draft, baseline = draft, error = null) }
     }
@@ -198,6 +206,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         val tags = normalizeMedicineTags(draft.tags + draft.tagInput)
         val error = formError(draft.name, draft.expiry, draft.quantity, draft.unit)
             ?: medicineTagsError(tags)
+            ?: medicineInformationError(draft.information)
             ?: if (draft.rawText.isNotBlank() && !draft.reviewed) "请先对照包装核对名称和有效期" else null
         if (error != null) { change { copy(error = error) }; return }
         busy.value = true
@@ -211,7 +220,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                     remainingQuantity = draft.quantity.trim().toIntOrNull(), quantityUnit = draft.unit,
                     photoUri = draft.photos.firstOrNull().orEmpty(), photosJson = encodePhotos(draft.photos),
                     ocrRawText = draft.rawText, createdAt = original?.createdAt ?: now, updatedAt = now,
-                    tagsJson = encodeTags(tags)
+                    tagsJson = encodeTags(tags), information = draft.information.trimmed()
                 ))
                 change { copy(screen = Screen.CABINET, search = "", filter = CabinetFilter.ALL, tag = null,
                     draft = MedicineDraft(), baseline = MedicineDraft(), error = null, highlightId = id) }

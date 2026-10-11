@@ -34,7 +34,7 @@ fun CabinetScreen(
     Column(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("找到家里的药，也记住它们的有效期。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(
-            value = state.session.search, onValueChange = search, label = { Text("搜索名称、标签、包装功效或备注") },
+            value = state.session.search, onValueChange = search, label = { Text("搜索名称、品牌、标签等") },
             singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp),
             trailingIcon = { if (state.session.search.isNotEmpty()) TextButton(onClick = { search("") }) { Text("清除") } }
         )
@@ -99,6 +99,9 @@ private fun MedicineCard(item: MedicineEntity, highlighted: Boolean, open: () ->
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(item.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val summary = listOf(item.information.brandName.takeUnless { it.equals(item.name, ignoreCase = true) }.orEmpty(),
+                    item.information.specification).filter(String::isNotBlank).joinToString(" · ")
+                if (summary.isNotBlank()) Text(summary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 ExpiryLabel(item.expiryDate)
                 Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.bodyMedium)
                 if (item.tags().isNotEmpty()) MedicineTags(item.tags(), limit = 3)
