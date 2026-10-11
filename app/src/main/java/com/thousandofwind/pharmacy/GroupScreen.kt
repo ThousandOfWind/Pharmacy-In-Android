@@ -12,12 +12,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun GroupRow(group: CabinetGroup, total: Int, highlighted: Boolean, open: () -> Unit) {
+fun GroupRow(group: CabinetGroup, matching: Int, highlighted: Boolean, open: () -> Unit) {
     Column {
         Surface(onClick = open, color = if (highlighted) PaperPalette.Wash else PaperPalette.Paper, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(group.name, style = MaterialTheme.typography.titleMedium)
-                Text("${groupBrandCount(group.records)} 个已填品牌 · ${group.records.size} 条库存" + if (total != group.records.size) "（共 $total 条）" else "", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                Text("${groupBrandCount(group.records)} 个已填品牌 · ${group.records.size} 条库存" + if (matching != group.records.size) "（匹配 $matching 条）" else "", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
                 val expired = group.records.count { expiryStatus(it.expiryDate) == ExpiryStatus.EXPIRED }
                 val soon = group.records.count { expiryStatus(it.expiryDate) == ExpiryStatus.SOON }
                 if (expired > 0) Text("其中 $expired 条已过期", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Error)

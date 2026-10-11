@@ -141,12 +141,14 @@ class BackupStore(private val context: Context) {
         } catch (error: Exception) { cleanup(work); throw error }
     }
 
-    private suspend fun existingFingerprints(): MutableSet<String> {
+    private fun photoHashes(items: List<MedicineEntity>): Map<String, String?> = items.flatMap { it.photos() }.distinct()
+        .associateWith { source -> runCatching { hashPhoto(source) }.getOrNull() }
+
+    private fun fingerprints(items: List<MedicineEntity>, hashes: Map<String, String?>): MutableSet<String> {
         val known = mutableSetOf<String>()
-        val hashes = mutableMapOf<String, String?>()
-        dao.snapshot().forEach { item ->
+        items.forEach { item ->
             val photos = item.photos().map { source ->
-                if (!hashes.containsKey(source)) hashes[source] = runCatching { hashPhoto(source) }.getOrNull()
+                require(hashes.containsKey(source)) { "恢复期间药箱照片发生变化，请重新选择备份" }
                 hashes[source]
             }
             if (photos.all { it != null }) known += backupFingerprint(item.backupRecord(photos.filterNotNull()))
@@ -154,43 +156,50 @@ class BackupStore(private val context: Context) {
         return known
     }
 
-    private suspend fun incomingRecords(pending: PendingBackup): List<BackupRecord> {
-        val existingGroups = dao.snapshot().filter { it.groupKey.isNotBlank() }.associate { it.groupKey to it.groupName }
+    private fun incomingRecords(pending: PendingBackup, items: List<MedicineEntity>): List<BackupRecord> {
+        val existingGroups = items.filter { it.groupKey.isNotBlank() }.associate { it.groupKey to it.groupName }
         return resolveBackupGroups(pending.checked.document.records, existingGroups)
     }
 
     internal suspend fun preview(pending: PendingBackup): BackupPreview = withContext(Dispatchers.IO) {
-        val known = existingFingerprints()
-        val incoming = incomingRecords(pending)
+        val items = dao.snapshot()
+        val known = fingerprints(items, photoHashes(items))
+        val incoming = incomingRecords(pending, items)
         val added = incoming.count { known.add(backupFingerprint(it)) }
         BackupPreview(incoming.size, pending.checked.photos.size, added, incoming.size - added, pending.checked.document.createdAt)
     }
 
     /** No existing row is updated/deleted. DB insertion is atomic; failed imported photos are removed. */
     internal suspend fun restore(pending: PendingBackup): Int = withContext(Dispatchers.IO + NonCancellable) {
-        val ownedPhotos = mutableListOf<File>()
+        val ownedPhotos = mutableMapOf<String, File>()
+        val usedPhotos = mutableSetOf<String>()
         var committed = false
         try {
+            // Heavy reads and photo copies stay outside the Room write transaction.
+            val hashes = photoHashes(dao.snapshot())
+            val root = File(context.filesDir, "medicine_photos").apply { check(isDirectory || mkdirs()) }
+            pending.checked.photos.forEach { (hash, source) ->
+                val target = File(root, "${UUID.randomUUID()}.jpg")
+                ownedPhotos[hash] = target
+                source.copyTo(target)
+            }
             val count = db.withTransaction {
-                val known = existingFingerprints()
-                val fresh = incomingRecords(pending).filter { known.add(backupFingerprint(it)) }
-                val paths = mutableMapOf<String, String>()
-                val root = File(context.filesDir, "medicine_photos").apply { check(isDirectory || mkdirs()) }
-                fresh.flatMap { it.photos }.distinct().forEach { hash ->
-                    val target = File(root, "${UUID.randomUUID()}.jpg")
-                    ownedPhotos += target
-                    pending.checked.photos.getValue(hash).copyTo(target)
-                    paths[hash] = Uri.fromFile(target).toString()
-                }
+                val current = dao.snapshot()
+                val known = fingerprints(current, hashes)
+                val fresh = incomingRecords(pending, current).filter { known.add(backupFingerprint(it)) }
                 fresh.forEach { record ->
-                    dao.upsert(record.entity(record.photos.map { paths.getValue(it) }, record.groupKey to record.groupName))
+                    val paths = record.photos.map { hash ->
+                        usedPhotos += hash
+                        Uri.fromFile(ownedPhotos.getValue(hash)).toString()
+                    }
+                    dao.upsert(record.entity(paths, record.groupKey to record.groupName))
                 }
                 fresh.size
             }
             committed = true
             count
         } finally {
-            if (!committed) ownedPhotos.forEach { it.delete() }
+            ownedPhotos.filterKeys { !committed || it !in usedPhotos }.values.forEach { it.delete() }
         }
     }
 

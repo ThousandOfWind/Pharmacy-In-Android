@@ -113,8 +113,10 @@ fun CabinetScreen(
                             if (group.records.first().groupKey.isBlank()) {
                                 val item = group.records.first()
                                 MedicineRow(item, item.id == state.session.highlightId, { open(item) })
-                            } else GroupRow(group, state.medicines.count { "group:${it.groupKey}" == group.key },
-                                group.records.any { it.id == state.session.highlightId }, { openGroup(group) })
+                            } else {
+                                val complete = group.copy(records = state.medicines.filter { "group:${it.groupKey}" == group.key })
+                                GroupRow(complete, group.records.size, group.records.any { it.id == state.session.highlightId }, { openGroup(complete) })
+                            }
                         }
                     }
                 }
