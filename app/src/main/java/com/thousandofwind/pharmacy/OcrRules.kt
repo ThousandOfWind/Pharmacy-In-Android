@@ -58,7 +58,7 @@ private fun sections(text: String): List<Section> {
             val initial = expiryHeading?.groupValues?.get(2) ?: bracket?.groupValues?.get(2) ?: colon?.groupValues?.get(2) ?: ""
             if (initial.isNotBlank()) lines += initial
             // Unbracketed inline labels have no trustworthy paragraph boundary on a box.
-            if ((expiryHeading != null || colon != null && bracket == null) && initial.isNotBlank()) flush()
+            if ((label in expiryLabels || colon != null && bracket == null) && initial.isNotBlank()) flush()
         } else if (active != null) lines += original
     }
     flush()

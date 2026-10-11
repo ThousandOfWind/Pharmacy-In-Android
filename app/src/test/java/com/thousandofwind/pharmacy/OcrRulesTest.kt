@@ -44,7 +44,9 @@ class OcrRulesTest {
         assertEquals("", extractCandidates("生产日期：2026-01-01\n有效期至：见盒底\n说明书修订日期：2028-01-01").expiry)
         assertEquals("", extractCandidates("有效期至：2028-06-01 生产日期：2026-06-01").expiry)
         assertEquals("2028-06", extractCandidates("有效期至：2028年6月").expiry)
-        assertEquals("2028-06", extractCandidates("有效期至：2028-06\n包装文字").expiry)
+        listOf("有效期至：", "【有效期至】", "[有效期至]", "EXP ").forEach { label ->
+            assertEquals("2028-06", extractCandidates("${label}2028-06\n包装文字").expiry)
+        }
         val mixed = extractCandidates("【规格】10mg\n【规格】20mg\n【包装】6片")
         assertEquals("", mixed.information.specification)
         assertTrue(mixed.warnings.any { it.contains("规格") })
