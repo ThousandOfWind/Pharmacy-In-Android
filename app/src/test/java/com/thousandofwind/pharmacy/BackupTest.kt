@@ -19,6 +19,11 @@ class BackupTest {
             tags = listOf("外用", "自定义"), information = BACKUP_INFORMATION_V1.associateWith { "$it 原文\n保留" }, photos = listOf("a".repeat(64)))
         val document = BackupDocument(789, listOf(record))
         assertEquals(document, decodeBackup(encodeBackup(document)))
+        val legacy = encodeBackup(BackupDocument(789, listOf(record.copy(photos = emptyList()))))
+        val legacyVersion = legacy.copyOf(legacy.size - 8) // v1 has no two empty group strings.
+        val offset = 4 + "PharmacyCabinetBackup".toByteArray().size
+        java.nio.ByteBuffer.wrap(legacyVersion).putInt(offset, 1)
+        assertEquals(BackupDocument(789, listOf(record.copy(photos = emptyList()))), decodeBackup(legacyVersion))
         assertNotEquals(backupFingerprint(record), backupFingerprint(record.copy(quantity = null)))
         assertNotEquals(backupFingerprint(record), backupFingerprint(record.copy(updatedAt = 457)))
         assertEquals(backupFingerprint(record), backupFingerprint(record.copy(information = record.information.toList().reversed().toMap())))

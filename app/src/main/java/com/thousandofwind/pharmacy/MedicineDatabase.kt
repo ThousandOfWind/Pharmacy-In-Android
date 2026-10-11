@@ -32,7 +32,9 @@ data class MedicineEntity(
     @ColumnInfo(name = "photos_json", defaultValue = "'[]'") val photosJson: String = "[]",
     @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = 0,
     @ColumnInfo(name = "tags_json", defaultValue = "'[]'") val tagsJson: String = "[]",
-    @Embedded(prefix = "info_") val information: MedicineInformation = MedicineInformation()
+    @Embedded(prefix = "info_") val information: MedicineInformation = MedicineInformation(),
+    @ColumnInfo(name = "group_key", defaultValue = "''") val groupKey: String = "",
+    @ColumnInfo(name = "group_name", defaultValue = "''") val groupName: String = ""
 ) {
     fun tags(): List<String> = decodeTags(tagsJson)
 
@@ -64,11 +66,14 @@ interface MedicineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: MedicineEntity): Long
 
+    @Query("UPDATE medicines SET group_key = :key, group_name = :name WHERE id = :id")
+    suspend fun associateGroup(id: Long, key: String, name: String)
+
     @Query("DELETE FROM medicines WHERE id = :id")
     suspend fun delete(id: Long)
 }
 
-@Database(entities = [MedicineEntity::class], version = 5, exportSchema = false)
+@Database(entities = [MedicineEntity::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun medicineDao(): MedicineDao
 
@@ -101,11 +106,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medicines ADD COLUMN group_key TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE medicines ADD COLUMN group_name TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "pharmacy.db")
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // Intentionally no destructive fallback: an unsupported migration must not erase the cabinet.
                 .build().also { instance = it }
         }

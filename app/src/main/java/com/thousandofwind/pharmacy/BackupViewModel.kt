@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,7 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
 
     fun export(uri: Uri) {
         if (mutable.value.busy) return
+        discard()
         mutable.value = BackupUiState(busy = true)
         viewModelScope.launch {
             try {
@@ -47,7 +49,7 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
                 pending = staged
                 mutable.value = BackupUiState(preview = preview)
             } catch (error: Exception) {
-                staged?.let { withContext(Dispatchers.IO) { store.discard(it) } }
+                staged?.let { withContext(Dispatchers.IO + NonCancellable) { store.discard(it) } }
                 if (error is CancellationException) throw error
                 mutable.value = BackupUiState(message = "未恢复：${error.message ?: "备份无法读取"}。现有药箱未改动。")
             }
@@ -58,8 +60,9 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
         val staged = pending ?: return
         if (mutable.value.busy) return
         mutable.value = mutable.value.copy(busy = true, message = null)
-        viewModelScope.launch {
+        viewModelScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
+                pending = null // Ownership transfers to this coroutine before the first suspension.
                 val count = store.restore(staged)
                 mutable.value = BackupUiState(message = "恢复完成，新增 $count 条记录；现有记录已保留。")
             } catch (error: Exception) {

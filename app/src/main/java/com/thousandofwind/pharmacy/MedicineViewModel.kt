@@ -4,6 +4,8 @@ import android.app.Application
 import android.net.Uri
 import android.graphics.Bitmap
 import android.os.Bundle
+import androidx.room.withTransaction
+import java.util.UUID
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -28,7 +30,7 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-enum class Screen { CABINET, EDITOR, DETAIL }
+enum class Screen { CABINET, EDITOR, DETAIL, GROUP }
 enum class CabinetFilter(val label: String) { ALL("全部"), SOON("临期"), EXPIRED("已过期"), UNKNOWN("日期待补充"), ATTENTION("需要留意") }
 
 data class MedicineDraft(
@@ -45,10 +47,12 @@ data class MedicineDraft(
     val reviewed: Boolean = false,
     val tags: List<String> = emptyList(),
     val tagInput: String = "",
-    val information: MedicineInformation = MedicineInformation()
+    val information: MedicineInformation = MedicineInformation(),
+    val groupKey: String = "", val groupName: String = ""
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
+        putString("groupKey", groupKey); putString("groupName", groupName)
         putString("quantity", quantity); putString("unit", unit)
         putString("efficacy", efficacy); putString("notes", notes)
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
@@ -80,7 +84,7 @@ data class MedicineDraft(
                 normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty(),
                 MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
                     info.withValue(field, it.getBundle("information")?.getString(field.column).orEmpty())
-                }
+                }, it.getString("groupKey").orEmpty(), it.getString("groupName").orEmpty()
             )
         } ?: MedicineDraft()
     }
@@ -95,7 +99,7 @@ data class Session(
     val baseline: MedicineDraft = MedicineDraft(),
     val error: String? = null,
     val highlightId: Long = 0,
-    val tag: String? = null
+    val tag: String? = null, val groupKey: String = ""
 )
 
 data class UiState(
@@ -107,10 +111,11 @@ data class UiState(
     val scanning: Boolean = false
 ) {
     val selected get() = medicines.firstOrNull { it.id == session.selectedId }
+    val selectedGroup get() = cabinetGroups(medicines).firstOrNull { it.key == session.groupKey }
     val availableTags get() = normalizeMedicineTags(medicines.flatMap { it.tags() }).sorted()
     val visible get() = medicines.filter { item ->
         matchesMedicineTextAndTag(item.name, item.efficacy, item.notes, item.tags(), session.search, session.tag,
-            item.information.searchableValues()) &&
+            item.information.searchableValues() + item.groupName) &&
             when (session.filter) {
                 CabinetFilter.ALL -> true
                 CabinetFilter.SOON -> expiryStatus(item.expiryDate) == ExpiryStatus.SOON
@@ -125,7 +130,8 @@ data class UiNotice(val text: String, val canUndo: Boolean = false)
 private data class Records(val items: List<MedicineEntity> = emptyList(), val loaded: Boolean = false, val error: String? = null)
 
 class MedicineViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
-    private val dao = AppDatabase.getInstance(application).medicineDao()
+    private val db = AppDatabase.getInstance(application)
+    private val dao = db.medicineDao()
     private val session = MutableStateFlow(Session(
         screen = runCatching { Screen.valueOf(savedState["screen"] ?: "CABINET") }.getOrDefault(Screen.CABINET),
         selectedId = savedState["selectedId"] ?: 0L,
@@ -133,7 +139,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         filter = runCatching { CabinetFilter.valueOf(savedState["filter"] ?: "ALL") }.getOrDefault(CabinetFilter.ALL),
         draft = MedicineDraft.fromBundle(savedState["draft"]),
         baseline = MedicineDraft.fromBundle(savedState["baseline"]),
-        tag = savedState["tag"]
+        tag = savedState["tag"], groupKey = savedState["groupKey"] ?: ""
     ))
     private val busy = MutableStateFlow(false)
     private val scanning = MutableStateFlow(false)
@@ -167,14 +173,53 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         val value = session.value
         savedState["screen"] = value.screen.name; savedState["selectedId"] = value.selectedId
         savedState["search"] = value.search; savedState["filter"] = value.filter.name
-        savedState["tag"] = value.tag
+        savedState["tag"] = value.tag; savedState["groupKey"] = value.groupKey
         savedState["draft"] = value.draft.toBundle(); savedState["baseline"] = value.baseline.toBundle()
     }
 
     fun search(value: String) = change { copy(search = value, highlightId = 0) }
     fun filter(value: CabinetFilter) = change { copy(filter = value, highlightId = 0) }
     fun filterTag(value: String?) = change { copy(tag = value, highlightId = 0) }
-    fun open(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id) }
+    fun open(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id, groupKey = "") }
+    fun openGroup(group: CabinetGroup) = change { copy(screen = Screen.GROUP, groupKey = group.key) }
+    fun openStock(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id) }
+
+    fun linkGroup(item: MedicineEntity, target: MedicineEntity?, name: String?) {
+        if (busy.value || scanning.value) return
+        name?.let { groupNameError(it)?.let { error -> report(error); return } }
+        busy.value = true
+        viewModelScope.launch {
+            try {
+                db.withTransaction {
+                    val all = dao.snapshot()
+                    require(all.any { it.id == item.id }) { "记录已不存在" }
+                    val currentTarget = target?.let { wanted -> all.firstOrNull { it.id == wanted.id } ?: error("目标记录已不存在") }
+                    val key = when {
+                        currentTarget != null -> currentTarget.groupKey.ifBlank { UUID.randomUUID().toString() }
+                        name != null -> UUID.randomUUID().toString()
+                        else -> ""
+                    }
+                    val title = currentTarget?.let { it.groupName.ifBlank { it.information.genericName.ifBlank { it.name } } } ?: name?.trim().orEmpty()
+                    if (key.isNotBlank()) require(groupNameError(title) == null) { "请使用80字符以内的药品组名称" }
+                    if (currentTarget != null) dao.associateGroup(currentTarget.id, key, title)
+                    dao.associateGroup(item.id, key, title)
+                }
+                change { copy(groupKey = "") }
+                report(if (target == null && name == null) "已移出药品组，库存资料保留" else "已关联药品组，各条库存仍独立")
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                report("关联失败，原记录未改动")
+            } finally { busy.value = false }
+        }
+    }
+
+    fun addToGroup(group: CabinetGroup) {
+        val source = group.records.firstOrNull() ?: return
+        if (busy.value || scanning.value) return
+        scanGeneration++
+        val draft = MedicineDraft(name = group.name, groupKey = source.groupKey, groupName = source.groupName)
+        change { copy(screen = Screen.EDITOR, selectedId = 0, draft = draft, baseline = draft, error = null) }
+    }
 
     fun beginNew() {
         if (busy.value || scanning.value) return
@@ -187,7 +232,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             id = item.id, name = item.name, expiry = item.expiryDate,
             quantity = item.remainingQuantity?.toString().orEmpty(), unit = item.quantityUnit,
             efficacy = item.efficacy, notes = item.notes, photos = item.photos(), rawText = item.ocrRawText,
-            reviewed = true, tags = item.tags(), information = item.information
+            reviewed = true, tags = item.tags(), information = item.information, groupKey = item.groupKey, groupName = item.groupName
         )
         change { copy(screen = Screen.EDITOR, selectedId = item.id, draft = draft, baseline = draft, error = null) }
     }
@@ -204,7 +249,11 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         scanGeneration++
         scanning.value = false
         change {
-            copy(screen = if (screen == Screen.EDITOR && draft.id != 0L) Screen.DETAIL else Screen.CABINET,
+            copy(screen = when {
+                screen == Screen.EDITOR && draft.id != 0L -> Screen.DETAIL
+                screen == Screen.DETAIL && groupKey.isNotBlank() -> Screen.GROUP
+                else -> Screen.CABINET
+            },
                 draft = MedicineDraft(), baseline = MedicineDraft(), error = null)
         }
     }
@@ -230,7 +279,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                     remainingQuantity = draft.quantity.trim().toIntOrNull(), quantityUnit = draft.unit,
                     photoUri = draft.photos.firstOrNull().orEmpty(), photosJson = encodePhotos(draft.photos),
                     ocrRawText = draft.rawText, createdAt = original?.createdAt ?: now, updatedAt = now,
-                    tagsJson = encodeTags(tags), information = draft.information.trimmed()
+                    tagsJson = encodeTags(tags), information = draft.information.trimmed(), groupKey = draft.groupKey, groupName = draft.groupName
                 ))
                 change { copy(screen = Screen.CABINET, search = "", filter = CabinetFilter.ALL, tag = null,
                     draft = MedicineDraft(), baseline = MedicineDraft(), error = null, highlightId = id) }

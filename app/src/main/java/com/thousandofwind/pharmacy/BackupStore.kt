@@ -14,10 +14,10 @@ internal fun MedicineEntity.backupRecord(photoHashes: List<String>) = BackupReco
     name, expiryDate, efficacy, notes, remainingQuantity, quantityUnit, ocrRawText, createdAt, updatedAt,
     tags(), BACKUP_INFORMATION_V1.associateWith { column ->
         information[MedicineInformationField.entries.first { it.column == column }]
-    }, photoHashes
+    }, photoHashes, groupKey, groupName
 )
 
-private fun BackupRecord.entity(paths: List<String>): MedicineEntity {
+private fun BackupRecord.entity(paths: List<String>, restoredGroup: Pair<String, String>): MedicineEntity {
     val info = MedicineInformationField.entries.fold(MedicineInformation()) { current, field ->
         current.withValue(field, information[field.column].orEmpty())
     }
@@ -25,7 +25,7 @@ private fun BackupRecord.entity(paths: List<String>): MedicineEntity {
         id = 0, name = name, expiryDate = expiry, efficacy = efficacy, notes = notes,
         remainingQuantity = quantity, quantityUnit = unit, ocrRawText = ocrText,
         photoUri = paths.firstOrNull().orEmpty(), photosJson = encodePhotos(paths),
-        createdAt = createdAt, updatedAt = updatedAt, tagsJson = org.json.JSONArray(tags).toString(), information = info
+        createdAt = createdAt, updatedAt = updatedAt, tagsJson = org.json.JSONArray(tags).toString(), information = info, groupKey = restoredGroup.first, groupName = restoredGroup.second
     )
 }
 
@@ -77,15 +77,18 @@ class BackupStore(private val context: Context) {
             require(items.size <= MAX_BACKUP_RECORDS) { "记录超过 2000 条备份上限" }
             val files = linkedMapOf<String, File>()
             var total = 0L
+            val sourceHashes = mutableMapOf<String, String>()
             val records = items.map { item ->
                 val hashes = item.photos().map { source ->
-                    val temp = File(work, "photo-${UUID.randomUUID()}")
-                    val hash = hashPhoto(source, temp)
-                    if (hash !in files) {
-                        total += temp.length(); require(total <= MAX_BACKUP_BYTES) { "照片总量超过 512 MiB 备份上限" }
-                        files[hash] = temp
-                    } else check(temp.delete())
-                    hash
+                    sourceHashes.getOrPut(source) {
+                        val temp = File(work, "photo-${UUID.randomUUID()}")
+                        val hash = hashPhoto(source, temp)
+                        if (hash !in files) {
+                            total += temp.length(); require(total <= MAX_BACKUP_BYTES) { "照片总量超过 512 MiB 备份上限" }
+                            files[hash] = temp
+                        } else check(temp.delete())
+                        hash
+                    }
                 }
                 item.backupRecord(hashes)
             }
@@ -119,14 +122,27 @@ class BackupStore(private val context: Context) {
         } catch (error: Exception) { work.deleteRecursively(); throw error }
     }
 
-    private suspend fun existingFingerprints(): MutableSet<String> = dao.snapshot().mapTo(hashSetOf()) { item ->
-        val hashes = item.photos().map { hashPhoto(it) }
-        backupFingerprint(item.backupRecord(hashes))
+    private suspend fun existingFingerprints(): MutableSet<String> {
+        val known = mutableSetOf<String>()
+        val hashes = mutableMapOf<String, String?>()
+        dao.snapshot().forEach { item ->
+            val photos = item.photos().map { source ->
+                if (!hashes.containsKey(source)) hashes[source] = runCatching { hashPhoto(source) }.getOrNull()
+                hashes[source]
+            }
+            if (photos.all { it != null }) known += backupFingerprint(item.backupRecord(photos.filterNotNull()))
+        }
+        return known
+    }
+
+    private suspend fun incomingRecords(pending: PendingBackup): List<BackupRecord> {
+        val existingGroups = dao.snapshot().filter { it.groupKey.isNotBlank() }.associate { it.groupKey to it.groupName }
+        return resolveBackupGroups(pending.checked.document.records, existingGroups)
     }
 
     internal suspend fun preview(pending: PendingBackup): BackupPreview = withContext(Dispatchers.IO) {
         val known = existingFingerprints()
-        val incoming = pending.checked.document.records
+        val incoming = incomingRecords(pending)
         val added = incoming.count { known.add(backupFingerprint(it)) }
         BackupPreview(incoming.size, pending.checked.photos.size, added, incoming.size - added, pending.checked.document.createdAt)
     }
@@ -138,7 +154,7 @@ class BackupStore(private val context: Context) {
         try {
             val count = db.withTransaction {
                 val known = existingFingerprints()
-                val fresh = pending.checked.document.records.filter { known.add(backupFingerprint(it)) }
+                val fresh = incomingRecords(pending).filter { known.add(backupFingerprint(it)) }
                 val paths = mutableMapOf<String, String>()
                 val root = File(context.filesDir, "medicine_photos").apply { check(isDirectory || mkdirs()) }
                 fresh.flatMap { it.photos }.distinct().forEach { hash ->
@@ -147,7 +163,9 @@ class BackupStore(private val context: Context) {
                     pending.checked.photos.getValue(hash).copyTo(target)
                     paths[hash] = Uri.fromFile(target).toString()
                 }
-                fresh.forEach { record -> dao.upsert(record.entity(record.photos.map { paths.getValue(it) })) }
+                fresh.forEach { record ->
+                    dao.upsert(record.entity(record.photos.map { paths.getValue(it) }, record.groupKey to record.groupName))
+                }
                 fresh.size
             }
             committed = true

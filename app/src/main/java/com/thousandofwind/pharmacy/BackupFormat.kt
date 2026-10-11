@@ -14,7 +14,7 @@ const val MAX_BACKUP_MANIFEST_BYTES = 16 * 1024 * 1024
 const val MAX_BACKUP_RECORDS = 2000
 const val MAX_BACKUP_PHOTOS = MAX_BACKUP_RECORDS * 12
 private const val MAX_TEXT_BYTES = 1024 * 1024
-private const val BACKUP_VERSION = 1
+private const val BACKUP_VERSION = 2
 private const val BACKUP_MAGIC = "PharmacyCabinetBackup"
 
 // Fixed v1 wire schema, independent of future additions to the database field enum.
@@ -29,7 +29,7 @@ data class BackupRecord(
     val quantity: Int? = null, val unit: String = "", val ocrText: String = "",
     val createdAt: Long = 0, val updatedAt: Long = 0,
     val tags: List<String> = emptyList(), val information: Map<String, String> = BACKUP_INFORMATION_V1.associateWith { "" },
-    val photos: List<String> = emptyList()
+    val photos: List<String> = emptyList(), val groupKey: String = "", val groupName: String = ""
 )
 
 data class BackupDocument(val createdAt: Long, val records: List<BackupRecord>)
@@ -71,6 +71,8 @@ private fun writeRecord(out: DataOutputStream, r: BackupRecord) {
     out.writeInt(r.tags.size); r.tags.forEach { text(out, it) }
     BACKUP_INFORMATION_V1.forEach { text(out, r.information.getValue(it)) }
     out.writeInt(r.photos.size); r.photos.forEach { photoEntry(it); text(out, it) }
+    require((r.groupKey.isEmpty() && r.groupName.isEmpty()) || (validGroupKey(r.groupKey) && groupNameError(r.groupName) == null)) { "备份分组无效" }
+    text(out, r.groupKey); text(out, r.groupName)
 }
 
 fun encodeBackup(document: BackupDocument): ByteArray {
@@ -90,7 +92,9 @@ fun encodeBackup(document: BackupDocument): ByteArray {
 fun decodeBackup(bytes: ByteArray): BackupDocument {
     require(bytes.size <= MAX_BACKUP_MANIFEST_BYTES) { "备份清单过大" }
     DataInputStream(ByteArrayInputStream(bytes)).use { input ->
-        require(text(input) == BACKUP_MAGIC && input.readInt() == BACKUP_VERSION) { "不是本应用支持的备份版本" }
+        require(text(input) == BACKUP_MAGIC) { "不是本应用的备份" }
+        val version = input.readInt()
+        require(version in 1..BACKUP_VERSION) { "不是本应用支持的备份版本" }
         val time = input.readLong()
         val count = input.readInt(); require(count in 0..MAX_BACKUP_RECORDS) { "备份记录数量无效" }
         val rows = List(count) {
@@ -105,10 +109,14 @@ fun decodeBackup(bytes: ByteArray): BackupDocument {
             val information = BACKUP_INFORMATION_V1.associateWith { text(input) }
             val photoCount = input.readInt(); require(photoCount in 0..12) { "备份照片数量无效" }
             val photos = List(photoCount) { text(input).also(::photoEntry) }
+            val groupKey = if (version >= 2) text(input) else ""
+            val groupName = if (version >= 2) text(input) else ""
+            require((groupKey.isEmpty() && groupName.isEmpty()) || (validGroupKey(groupKey) && groupNameError(groupName) == null)) { "备份分组无效" }
             require(name.isNotBlank()) { "备份药名为空" }
             // Preserve legacy unknown units/dates and multiline text rather than rewriting old records.
-            BackupRecord(name, expiry, efficacy, notes, quantity, unit, ocr, created, updated, tags, information, photos)
+            BackupRecord(name, expiry, efficacy, notes, quantity, unit, ocr, created, updated, tags, information, photos, groupKey, groupName)
         }
+        require(rows.filter { it.groupKey.isNotBlank() }.groupBy { it.groupKey }.values.all { group -> group.map { it.groupName }.distinct().size == 1 }) { "备份药品组名称冲突" }
         require(input.available() == 0) { "备份包含未支持的数据" }
         return BackupDocument(time, rows)
     }
