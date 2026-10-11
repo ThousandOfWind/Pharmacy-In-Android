@@ -85,12 +85,12 @@ fun EditorScreen(
         }
         PaperField(
             value = draft.name, onValueChange = { value -> update { copy(name = value, reviewed = false) } },
-            label = { Text("药品名称（必填）") }, enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
+            label = "药品名称（必填）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
             isError = state.session.error != null && draft.name.isBlank()
         )
         PaperField(
             value = draft.expiry, onValueChange = { value -> update { copy(expiry = value, reviewed = false) } },
-            label = { Text("有效期至（可选）") }, enabled = !state.busy,
+            label = "有效期至（可选）", enabled = !state.busy,
             isError = draft.expiry.isNotBlank() && expiryDay(draft.expiry) == null,
             trailingIcon = { TextButton(onClick = { datePicker = true }, enabled = !state.busy) { Text("选日期") } },
             supportingText = { Text("填 YYYY-MM 或 YYYY-MM-DD。只有月份按月末计算；生产日期不是有效期。无法确认可留空。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted) },
@@ -108,7 +108,7 @@ fun EditorScreen(
                 { value -> update { copy(quantity = value) } }, { value -> update { copy(unit = value) } })
             Text("不填写代表未知，0 代表已用完。不同单位的余量不会相加。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
             PaperField(value = draft.information.storageLocation, onValueChange = { value -> update { copy(information = information.withValue(MedicineInformationField.STORAGE_LOCATION, value)) } },
-                label = { Text("存放位置（可选）") }, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+                label = "存放位置（可选）", enabled = !state.busy, modifier = Modifier.fillMaxWidth())
             PaperDisclosure("品牌、规格、厂家等药品资料", identity, { identity = !identity }) {
                 MedicineInformationFields(draft.information, MedicineInformationGroup.IDENTITY, !state.busy, exclude = setOf(MedicineInformationField.STORAGE_LOCATION)) { field, value ->
                     update { copy(information = information.withValue(field, value)) }
@@ -121,7 +121,7 @@ fun EditorScreen(
                 LeafletDisclaimer()
                 PaperField(
                     value = draft.efficacy, onValueChange = { value -> update { copy(efficacy = value) } },
-                    label = { Text("适应症 / 功能主治（原文）") }, supportingText = { Text("沿用原包装功效记录，不自动推断疗效。", style = MaterialTheme.typography.bodySmall) },
+                    label = "适应症 / 功能主治（原文）", supportingText = { Text("沿用原包装功效记录，不自动推断疗效。", style = MaterialTheme.typography.bodySmall) },
                     singleLine = false, minLines = 2, maxLines = 5, enabled = !state.busy, modifier = Modifier.fillMaxWidth()
                 )
                 MedicineInformationFields(draft.information, MedicineInformationGroup.LEAFLET, !state.busy) { field, value ->
@@ -130,7 +130,7 @@ fun EditorScreen(
             }
             PaperDisclosure("备注", notes, { notes = !notes }) {
                 PaperField(value = draft.notes, onValueChange = { value -> update { copy(notes = value) } },
-                    label = { Text("备注") }, singleLine = false, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
+                    label = "备注", singleLine = false, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
             }
         }
         if (draft.rawText.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -157,7 +157,7 @@ fun QuantityFields(quantity: String, unit: String, enabled: Boolean, onQuantity:
     var menu by remember { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         PaperField(
-            value = quantity, onValueChange = onQuantity, label = { Text("当前余量（可选）") },
+            value = quantity, onValueChange = onQuantity, label = "当前余量（可选）",
             enabled = enabled, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.weight(1f)
         )

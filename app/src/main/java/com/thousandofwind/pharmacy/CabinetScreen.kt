@@ -59,7 +59,7 @@ fun CabinetScreen(
             else -> {
                 PaperField(
                     state.session.search, search, placeholder = { Text("找药名、品牌或标签") },
-                    modifier = Modifier.fillMaxWidth(), leadingIcon = { InkIcon(InkSymbol.SEARCH) },
+                    modifier = Modifier.fillMaxWidth(), accessibilityLabel = "搜索药名、品牌或标签", leadingIcon = { InkIcon(InkSymbol.SEARCH) },
                     trailingIcon = {
                         if (state.session.search.isNotEmpty()) TextButton(onClick = { search("") }) { Text("清除") }
                     }

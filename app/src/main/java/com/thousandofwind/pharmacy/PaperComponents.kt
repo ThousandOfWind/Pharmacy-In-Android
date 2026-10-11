@@ -134,15 +134,16 @@ fun InkDivider(modifier: Modifier = Modifier) {
 @Composable
 fun PaperField(
     value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
-    label: @Composable (() -> Unit)? = null, enabled: Boolean = true, singleLine: Boolean = true,
+    label: String? = null, enabled: Boolean = true, singleLine: Boolean = true,
     placeholder: @Composable (() -> Unit)? = null, supportingText: @Composable (() -> Unit)? = null,
     leadingIcon: @Composable (() -> Unit)? = null, trailingIcon: @Composable (() -> Unit)? = null,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default, isError: Boolean = false,
+    accessibilityLabel: String? = label,
     minLines: Int = 1, maxLines: Int = if (singleLine) 1 else 5
 ) {
     val focus = remember { FocusRequester() }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (label != null) Box(Modifier.clickable(enabled = enabled) { focus.requestFocus() }) { label() }
+        if (label != null) Box(Modifier.clickable(enabled = enabled) { focus.requestFocus() }) { Text(label) }
         OutlinedTextField(
             value = value, onValueChange = onValueChange, enabled = enabled, singleLine = singleLine,
             placeholder = placeholder, leadingIcon = leadingIcon, trailingIcon = trailingIcon,
@@ -150,7 +151,9 @@ fun PaperField(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color.Transparent, unfocusedBorderColor = Color.Transparent,
                 disabledBorderColor = Color.Transparent, errorBorderColor = Color.Transparent
-            ), modifier = Modifier.fillMaxWidth().focusRequester(focus).paperBorder(if (isError) PaperPalette.Error else PaperPalette.Frame)
+            ), modifier = Modifier.fillMaxWidth().focusRequester(focus)
+                .semantics { if (accessibilityLabel != null) contentDescription = accessibilityLabel }
+                .paperBorder(if (isError) PaperPalette.Error else PaperPalette.Frame)
         )
         supportingText?.invoke()
     }

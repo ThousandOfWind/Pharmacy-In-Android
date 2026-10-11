@@ -15,7 +15,7 @@ fun MedicineInformationFields(
         val value = information[field]
         val error = medicineInformationFieldError(field, value)
         PaperField(
-            value = value, onValueChange = { update(field, it) }, label = { Text(field.label) },
+            value = value, onValueChange = { update(field, it) }, label = field.label,
             singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
             maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,
             supportingText = {
@@ -26,8 +26,8 @@ fun MedicineInformationFields(
 }
 
 @Composable
-fun MedicineInformationDetails(information: MedicineInformation, group: MedicineInformationGroup) {
-    val fields = MedicineInformationField.entries.filter { it.group == group && information[it].isNotBlank() }
+fun MedicineInformationDetails(information: MedicineInformation, group: MedicineInformationGroup, exclude: Set<MedicineInformationField> = emptySet()) {
+    val fields = MedicineInformationField.entries.filter { it.group == group && it !in exclude && information[it].isNotBlank() }
     if (fields.isNotEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             fields.forEach { field ->

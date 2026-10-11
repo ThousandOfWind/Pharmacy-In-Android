@@ -65,8 +65,11 @@ fun DetailScreen(
         Text(item.information.storageLocation.ifBlank { "尚未填写" }, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         PaperDisclosure("包装与药品资料", identity, { identity = !identity }) {
-            MedicineInformationDetails(item.information, MedicineInformationGroup.IDENTITY)
-            if (item.information.searchableValues().none(String::isNotBlank)) Text("尚未补充药品资料。")
+            MedicineInformationDetails(item.information, MedicineInformationGroup.IDENTITY, exclude = setOf(MedicineInformationField.STORAGE_LOCATION))
+            val hasIdentity = MedicineInformationField.entries.any {
+                it.group == MedicineInformationGroup.IDENTITY && it != MedicineInformationField.STORAGE_LOCATION && item.information[it].isNotBlank()
+            }
+            if (!hasIdentity) Text("尚未补充药品资料。")
             if (item.tags().isNotEmpty()) MedicineTags(item.tags())
             Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
         }
