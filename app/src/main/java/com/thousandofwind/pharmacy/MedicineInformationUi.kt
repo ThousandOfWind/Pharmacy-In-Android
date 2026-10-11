@@ -9,12 +9,12 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MedicineInformationFields(
     information: MedicineInformation, group: MedicineInformationGroup, enabled: Boolean,
-    update: (MedicineInformationField, String) -> Unit
+    exclude: Set<MedicineInformationField> = emptySet(), update: (MedicineInformationField, String) -> Unit
 ) {
-    MedicineInformationField.entries.filter { it.group == group }.forEach { field ->
+    MedicineInformationField.entries.filter { it.group == group && it !in exclude }.forEach { field ->
         val value = information[field]
         val error = medicineInformationFieldError(field, value)
-        OutlinedTextField(
+        PaperField(
             value = value, onValueChange = { update(field, it) }, label = { Text(field.label) },
             singleLine = field.singleLine, minLines = if (field.singleLine) 1 else 2,
             maxLines = if (field.singleLine) 1 else 5, enabled = enabled, isError = error != null,

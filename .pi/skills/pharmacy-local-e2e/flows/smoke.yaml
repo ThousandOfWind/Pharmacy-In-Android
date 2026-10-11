@@ -12,6 +12,10 @@ appId: com.thousandofwind.pharmacy
 - tapOn: '药品名称（必填）'
 - inputText: 'E2E-阿莫西林'
 - runFlow: 'dismiss-keyboard.yaml'
+- tapOn: '余量、位置与更多资料'
+- scrollUntilVisible:
+    element: '当前余量（可选）'
+    direction: DOWN
 - tapOn: '当前余量（可选）'
 - inputText: '10'
 - runFlow: 'dismiss-keyboard.yaml'
@@ -22,8 +26,8 @@ appId: com.thousandofwind.pharmacy
 - tapOn: '保存到药箱'
 - assertVisible: '我的药箱'
 - assertVisible: 'E2E-阿莫西林'
-- assertVisible: '剩余 10 片'
-- tapOn: '搜索药品名称、包装功效或备注'
+# Numeric stock belongs in details; the home row is an identification summary.
+- tapOn: '找药名、品牌或标签'
 - inputText: '不存在的E2E药品'
 - runFlow: 'dismiss-keyboard.yaml'
 - assertVisible: '没有符合条件的药品'
@@ -44,5 +48,7 @@ appId: com.thousandofwind.pharmacy
 - launchApp
 - assertVisible: '我的药箱'
 - assertVisible: 'E2E-阿莫西林'
+- tapOn: 'E2E-阿莫西林'
+- assertVisible: '药品详情'
 - assertVisible: '剩余 8 片'
 - takeScreenshot: 'smoke'

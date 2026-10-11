@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Compose supplies the UI theme; the activity only needs a no-action-bar window. -->
-    <style name="Theme.Pharmacy" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <style name="Theme.Pharmacy" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/launcher_paper</item>
+        <item name="android:statusBarColor">@color/launcher_paper</item>
+        <item name="android:navigationBarColor">@color/launcher_paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
 </resources>
