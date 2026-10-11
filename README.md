@@ -53,6 +53,8 @@
 - ML Kit 中文文字识别（本地 OCR）
 - FileProvider + 相机拍照
 
+多模型助手选型的隔离验证见 [AI engine PoC](experiments/ai-engine-poc/README.md)：比较 Koog 与 OpenAI Kotlin，不包含在正式 APK 中，也不读取真实药箱或凭据。
+
 ## 本地开发与构建（Windows）
 
 环境要求：
