@@ -37,7 +37,11 @@ fun regionCandidates(text: String, target: String): OcrCandidates {
             val literal = extractCandidates("有效期至：$raw").expiry
             OcrCandidates(expiry = parsed.expiry.ifBlank { literal }, warnings = warnings)
         }
-        OCR_TARGET_EFFICACY -> OcrCandidates(efficacy = parsed.efficacy.ifBlank { raw }, warnings = warnings)
+        OCR_TARGET_EFFICACY -> {
+            val value = parsed.efficacy.ifBlank { raw }
+            if (value.length > 5000) OcrCandidates(warnings = warnings + "适应症内容超过5000字符，请查看原文")
+            else OcrCandidates(efficacy = value, warnings = warnings)
+        }
         else -> {
             val field = MedicineInformationField.entries.firstOrNull { it.column == target && it != MedicineInformationField.STORAGE_LOCATION }
                 ?: return OcrCandidates(warnings = listOf("无法归类此框选，请查看原文"))

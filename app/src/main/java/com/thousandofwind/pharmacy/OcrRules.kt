@@ -103,7 +103,9 @@ fun extractCandidates(text: String): OcrCandidates {
     val expiry = expiryValues.singleOrNull().orEmpty()
     if (expiryValues.size > 1) warnings += "有效期出现多个不同日期，请核对当前包装"
     val indications = sections.filter { it.label in indicationLabels && it.text.isNotBlank() }.map { it.text }.distinct()
-    val efficacy = indications.singleOrNull().orEmpty()
+    val indication = indications.singleOrNull().orEmpty()
+    val efficacy = indication.takeIf { it.length <= 5000 }.orEmpty()
+    if (indication.length > 5000) warnings += "适应症内容超过5000字符，未生成候选，请查看原文"
     if (indications.size > 1) warnings += "适应症有多个不同内容，请查看原图"
     if (MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && information[it].isNotBlank() }) {
         warnings += "说明书可能有错字、漏字或断行；剂量、禁忌与贮藏条件必须逐项对照照片"

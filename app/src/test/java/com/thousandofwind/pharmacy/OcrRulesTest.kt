@@ -32,6 +32,8 @@ class OcrRulesTest {
         assertEquals("示例药业有限公司", c.information.manufacturer)
         assertEquals("", c.expiry) // Duration and revision date aren't this inventory's expiry.
         assertTrue(c.warnings.isNotEmpty())
+        assertEquals("", extractCandidates("【功能主治】" + "字".repeat(5001)).efficacy)
+        assertEquals("", regionCandidates("字".repeat(5001), OCR_TARGET_EFFICACY).efficacy)
     }
 
     @Test fun unlabelledNamesAreOptionsAndConflictingDatesAreNotSelected() {
