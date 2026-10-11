@@ -179,13 +179,13 @@ async function confirmLaunchExit(c, owner) {
   throw new Error('Owned emulator exit is not confirmed; reservation retained. Do not start another task on this AVD/port.');
 }
 
-function reservedOwner(c) {
+function reservedOwner(c, requireAlive = true) {
   const file = path.join(c.state, 'device-reservation.json');
   if (!fs.existsSync(file)) throw new Error('Run start for this task first; never attach to another task\'s running emulator.');
   const owner = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (owner.repo !== c.repo || owner.avdName !== c.config.avdName || owner.port !== c.config.port) throw new Error('Local task reservation does not match current configuration.');
   verifyReservation(reservationRoot(), owner);
-  launchIdentityProbe(c, launchOwner(c));
+  launchIdentityProbe(c, launchOwner(c), requireAlive);
   return owner;
 }
 
@@ -256,11 +256,24 @@ async function main() {
       reserveDevice(reservationRoot(), owner);
       try { fs.writeFileSync(path.join(c.state, 'device-reservation.json'), JSON.stringify(owner), { flag: 'wx' }); }
       catch (error) { releaseReservation(reservationRoot(), owner); throw error; }
-      const stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a'); const stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
       const launchStarted = new Date().toISOString();
-      const child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
-        { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
-      let launchError; child.on('error', error => { launchError = error; }); child.unref(); fs.closeSync(stdout); fs.closeSync(stderr);
+      let stdout, stderr, child, launchError;
+      try {
+        stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a');
+        stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
+        child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
+          { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
+        child.on('error', error => { launchError = error; }); child.unref();
+      } catch (error) {
+        if (!child?.pid) {
+          releaseReservation(reservationRoot(), owner);
+          fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+        }
+        throw error;
+      } finally {
+        if (stdout !== undefined) fs.closeSync(stdout);
+        if (stderr !== undefined) fs.closeSync(stderr);
+      }
       const processProbe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if ($p -and $p.Name -eq 'emulator.exe' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)') { $p.CreationDate.ToUniversalTime().ToString('o') } else { exit 1 }`;
       establishLaunchOwnership({
         captureIdentity: () => {
@@ -288,12 +301,12 @@ async function main() {
       throw new Error(`Dedicated emulator did not boot within 180 seconds; review ${c.state}.`);
     }
     if (action === 'stop') {
-      const reservation = reservedOwner(c);
+      const reservation = reservedOwner(c, false);
       if (!fs.existsSync(ownership)) throw new Error('This runner did not start this emulator; leave it running.');
       const owner = JSON.parse(fs.readFileSync(ownership, 'utf8'));
       if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator ownership mismatch; refusing shutdown.');
       const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if (-not ($p -and $p.Name -eq 'emulator.exe' -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '${owner.creationTime}' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 };`;
-      const method = stopOwnedEmulator({
+      const method = launchIdentityProbe(c, owner, false) === 'exited' ? 'already-exited' : stopOwnedEmulator({
         verifyOwnership: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} 'owned'`], c.env, { quiet: true }),
         checkReady: () => deviceReady(c),
         killReadyDevice: () => c.adbCall(['emu', 'kill']),
