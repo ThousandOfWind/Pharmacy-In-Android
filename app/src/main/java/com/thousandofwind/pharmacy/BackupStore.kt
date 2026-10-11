@@ -36,7 +36,26 @@ class BackupStore(private val context: Context) {
     private val db = AppDatabase.getInstance(context)
     private val dao = db.medicineDao()
     private val base = File(context.cacheDir, "cabinet_backup")
-    private fun stage(): File = File(base, UUID.randomUUID().toString()).apply { check(mkdirs()) { "无法创建备份暂存目录" } }
+    private fun stage(): File = synchronized(stagingLock) {
+        check(base.isDirectory || base.mkdirs()) { "无法创建备份暂存目录" }
+        // Registry is process-wide: another instance's live preview must not be swept.
+        base.listFiles().orEmpty().filter { it.isDirectory && validGroupKey(it.name) && it.canonicalFile.parentFile == base.canonicalFile && it.absolutePath !in activeStages }
+            .forEach { check(it.deleteRecursively()) { "旧备份暂存目录无法清理" } }
+        File(base, UUID.randomUUID().toString()).apply {
+            check(mkdir()) { "无法创建备份暂存目录" }
+            activeStages += absolutePath
+        }
+    }
+
+    private fun cleanup(directory: File) = synchronized(stagingLock) {
+        directory.deleteRecursively()
+        activeStages -= directory.absolutePath
+    }
+
+    companion object {
+        private val stagingLock = Any()
+        private val activeStages = mutableSetOf<String>()
+    }
 
     private fun readPhoto(source: String): java.io.InputStream {
         val uri = Uri.parse(source)
@@ -99,7 +118,7 @@ class BackupStore(private val context: Context) {
             val output = requireNotNull(context.contentResolver.openOutputStream(destination, "wt")) { "无法写入选择的位置" }
             output.use { out -> archive.inputStream().use { it.copyTo(out) } }
             records.size to files.size
-        } finally { work.deleteRecursively() }
+        } finally { cleanup(work) }
     }
 
     internal suspend fun prepare(source: Uri): PendingBackup = withContext(Dispatchers.IO) {
@@ -119,7 +138,7 @@ class BackupStore(private val context: Context) {
             val content = File(work, "content").apply { check(mkdir()) }
             val checked = archive.inputStream().use { readBackupArchive(it, content) }
             PendingBackup(work, checked)
-        } catch (error: Exception) { work.deleteRecursively(); throw error }
+        } catch (error: Exception) { cleanup(work); throw error }
     }
 
     private suspend fun existingFingerprints(): MutableSet<String> {
@@ -175,5 +194,5 @@ class BackupStore(private val context: Context) {
         }
     }
 
-    internal fun discard(pending: PendingBackup) { pending.directory.deleteRecursively() }
+    internal fun discard(pending: PendingBackup) { cleanup(pending.directory) }
 }

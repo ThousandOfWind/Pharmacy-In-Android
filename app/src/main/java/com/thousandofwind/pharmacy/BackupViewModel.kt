@@ -6,6 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -82,8 +84,14 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
         mutable.value = BackupUiState()
     }
 
+    companion object {
+        private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+
     override fun onCleared() {
-        pending?.let(store::discard)
+        val staged = pending
+        pending = null
+        if (staged != null) cleanupScope.launch { store.discard(staged) }
         super.onCleared()
     }
 }
