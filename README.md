@@ -1,6 +1,6 @@
 # Pharmacy-In-Android
 
-一个本地离线的安卓药箱管理小程序。交互围绕「看药箱 → 拍照核对 → 入库 → 更新余量」组织：
+一个药箱数据保存在本地、日常功能可离线使用的安卓小程序；仅手动检查和下载 GitHub 更新时联网。交互围绕「看药箱 → 拍照核对 → 入库 → 更新余量」组织：
 
 - **药箱首页**：药品卡片、搜索，以及有效期状态和标签筛选（可叠加）。
 - **多标签整理**：常用标签快捷多选、自定义标签和已有标签复用；卡片与详情展示，搜索包含标签。
@@ -10,6 +10,7 @@
 - **药品资料与说明书**：通用名、品牌、厂家、批号及存放位置等均可选；说明书手工分项记录，不自动生成剂量或用药建议。
 - **余量＋单位**：区分未知与 0，不跨单位相加，不使用统一低余量阈值。
 - **本地持久保存**：Room 数据库、应用私有目录照片、屏幕旋转和系统重建时恢复填写草稿。
+- **GitHub 更新**：首页“更新”检查公开 Release，展示版本/说明，手动下载并校验后交给 Android 确认安装；不上传药箱数据或保存 GitHub 凭据。
 
 交互设计和数据规则见 [docs/interaction-flow.md](docs/interaction-flow.md)。
 
@@ -73,9 +74,9 @@ sdk.dir=C:/Users/zhiruizhu/AppData/Local/Android/Sdk
 
 APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 Lint 报告：`app/build/reports/lint-results-debug.html`。
-仅保留 9 个必要的核心规则 UT：日期解析、有效期状态、表单与余量校验、OCR 明确标签候选、避免误取药名和生产日期、标签规范化/限制、标签与文字组合匹配，以及资料字段独立性/原文保留、资料校验/搜索范围。不新增 UI／仪器测试套件。
+保留 9 个药箱核心规则 UT（日期、余量、OCR、标签规则，以及资料字段独立性/原文保留、资料校验/搜索范围），另有 3 个必要更新规则 UT（版本编码、元信息与大小边界、下载地址约束）。不新增 UI／仪器测试套件。
 
-页面布局、拍照权限、实际药盒识别和旧数据升级需在专用模拟器或设备上按需检查；UT 不代表这些真实设备流程已经验证。
+页面布局、拍照权限、实际药盒识别、旧数据升级及更新下载/系统安装授权需在专用模拟器或设备上按需检查；UT 不代表这些真实设备流程已经验证。
 
 ### Code agent 本地验收 skill
 
@@ -112,14 +113,23 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
   - 手动触发（`workflow_dispatch`）
   - 推送到 `main/master`
   - Pull Request
-- 产物：`app-debug.apk`
+- PR / 非 main 构建：仅验证和上传 `pharmacy-debug-apk` artifact，不发布更新、不使用固定签名私钥。
+- main 构建：UT、Lint、APK 构建通过后，上传 artifact 并自动发布公开 Release（APK + `update.json`）。
+- 自动版本：`versionName = 1.0.<workflow run_number>`，`versionCode = run_number + 1`。版本可有间隔，重跑同一版本不替换已发布文件。只将比已有版本更新的发布标记为 latest。
+- 固定调试签名保存在仓库 Actions secret `PHARMACY_DEBUG_KEYSTORE` 中，私钥不进入 Git/日志/artifact；只在 main 构建临时恢复并清理。缺少 secret 时拒绝用临时签名发布。
+- 不要删除或轮换该 secret，否则后续 APK 无法覆盖现有安装。本地/PR APK 的签名不能作为 main 更新通道使用。
 
-## 下载 APK 到本地使用
+## 下载及应用内更新
 
-1. 打开仓库的 **Actions** 页面。
-2. 选择 **Build APK** 工作流并进入某次成功的运行。
-3. 在页面底部 **Artifacts** 下载 `pharmacy-debug-apk`。
-4. 解压后得到 `app-debug.apk`，传到手机安装即可。
+1. 打开仓库的 [最新 Release](https://github.com/ThousandOfWind/Pharmacy-In-Android/releases/latest)。
+2. 下载附件 `app-debug.apk`，传到手机安装。公开 Release 下载不需要 GitHub 登录。
+3. 后续在药箱首页点击 **更新** → **下载更新** → **安装更新**。首次可能需在系统设置中允许本应用安装未知应用，返回后仍由系统确认安装。
+
+下载只允许本仓库 Release 和受信任的 GitHub HTTPS 下载跳转；校验 SHA-256、大小（最大 150 MiB）、包名、版本及与已安装应用一致的签名。不支持静默安装或自动卸载。网络失败、缺少发布或拒绝授权不会影响本地药箱。
+
+**旧 APK 迁移注意：** 历史 Actions/本地 APK 的签名可能不同；新固定签名不保证能覆盖旧安装。签名不一致时应用内更新会阻止安装。请保留旧应用及药箱数据，不要直接卸载或清除数据；目前尚无备份导出功能，应先解决备份/迁移。首次使用固定签名 APK 后，后续同签名新版才能正常覆盖并保留数据。
+
+Actions 的 `pharmacy-debug-apk` artifact 仍保留，内含 APK 与 `update.json`；下载 artifact 通常需要 GitHub 登录。应用更新使用公开 Release，不使用该下载入口。
 
 如需命令行安装（已连接 adb）：
 
