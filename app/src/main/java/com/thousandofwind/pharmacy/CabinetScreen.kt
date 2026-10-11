@@ -119,7 +119,7 @@ fun CabinetScreen(
             Text("按需要找", style = PaperHeading)
             Text("有效期", style = MaterialTheme.typography.titleMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CabinetFilter.entries.filterNot { it == CabinetFilter.ATTENTION }.forEach { entry ->
+                CabinetFilter.entries.forEach { entry ->
                     FilterChip(selected = state.session.filter == entry, onClick = { filter(entry) }, label = { Text(entry.label) })
                 }
             }

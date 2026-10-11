@@ -9,6 +9,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -143,7 +145,11 @@ fun PaperField(
 ) {
     val focus = remember { FocusRequester() }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (label != null) Box(Modifier.clickable(enabled = enabled) { focus.requestFocus() }) { Text(label) }
+        if (label != null) Box(
+            Modifier.clearAndSetSemantics { }.pointerInput(enabled) {
+                detectTapGestures { if (enabled) focus.requestFocus() }
+            }
+        ) { Text(label) }
         OutlinedTextField(
             value = value, onValueChange = onValueChange, enabled = enabled, singleLine = singleLine,
             placeholder = placeholder, leadingIcon = leadingIcon, trailingIcon = trailingIcon,
