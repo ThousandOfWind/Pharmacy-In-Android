@@ -57,7 +57,14 @@
 - 跟踪构建状态。成功后确认 `pharmacy-debug-apk` artifact 已生成，向用户提供 PR、合并提交、构建运行链接及产物入口。
 - 构建仍在运行时如实报告；失败时报告失败，不宣称新版本已生成。
 - 当前产物是 debug APK，不是签名发布包。版本号变更、Git tag、GitHub Release 或正式发布按用户明确要求执行，不额外部署应用。
-- 安全同步本地 main。清理开发分支、worktree 或备份前确认没有未保存内容，不擅自删除用户工作。
+- **每次 PR 合并后，必须将主 workspace（原始 checkout，不是任务 worktree）切回 main 并更新到最新 origin/main，包括纯文档／指令变更。** 确认主 workspace 的 HEAD 与最新 origin/main 一致，不能只更新远端或任务 worktree。
+- 同步前检查主 workspace 的未提交修改；有修改时先安全保留并说明备份或冲突情况，不覆盖用户工作，不使用 hard reset。工作区允许切换时执行：
+  ```bash
+  git fetch origin
+  git switch main
+  git merge --ff-only origin/main
+  ```
+- 如果主 workspace 无法 fast-forward 或存在无法安全处理的冲突，停止并报告，不宣称同步完成。清理开发分支、worktree 或备份前确认没有未保存内容，不擅自删除用户工作。
 
 ## GitHub 与提交身份
 
