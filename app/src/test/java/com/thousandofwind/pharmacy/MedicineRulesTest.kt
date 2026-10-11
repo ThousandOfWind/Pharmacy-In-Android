@@ -32,6 +32,7 @@ class MedicineRulesTest {
 
     @Test fun tagsNormalizeAndEnforceLimitsWithoutDroppingValidEntries() {
         assertEquals(listOf("外用", "Travel"), normalizeMedicineTags(listOf(" 外用 ", "", "外用", "Travel", "travel")))
+        assertEquals(listOf("İ", "Σ"), normalizeMedicineTags(listOf("İ", "i", "Σ", "ς")))
         assertNull(medicineTagsError(emptyList()))
         assertNull(medicineTagsError(List(MAX_MEDICINE_TAGS) { "标签$it" } + "标签0"))
         assertNotNull(medicineTagsError(List(MAX_MEDICINE_TAGS + 1) { "标签$it" }))
@@ -47,6 +48,8 @@ class MedicineRulesTest {
             matchesMedicineTextAndTag("示例药", "包装文字", "抽屉", tags, query, tag)
         assertTrue(matches("", null, emptyList())) // Legacy/untagged records remain visible.
         assertTrue(matches("travel", "TRAVEL"))
+        assertTrue(matches("i", "i", normalizeMedicineTags(listOf("İ", "i"))))
+        assertTrue(matches("ς", "ς", normalizeMedicineTags(listOf("Σ", "ς"))))
         assertTrue(matches("示例", "外用"))
         assertTrue(matches("抽屉", "外用"))
         assertFalse(matches("无匹配", "外用"))

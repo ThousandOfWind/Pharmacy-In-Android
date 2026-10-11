@@ -41,8 +41,13 @@ val commonMedicineTagGroups = listOf(
     MedicineTagGroup("保存提示 · 请核对包装", listOf("需冷藏", "避光保存"))
 )
 
-fun normalizeMedicineTags(tags: List<String>): List<String> = tags.map(String::trim)
-    .filter(String::isNotBlank).distinctBy { it.lowercase(java.util.Locale.ROOT) }
+fun normalizeMedicineTags(tags: List<String>): List<String> = buildList {
+    tags.forEach { value ->
+        val tag = value.trim()
+        // Use exactly the same Unicode case comparison as chip selection and filtering.
+        if (tag.isNotBlank() && none { it.equals(tag, ignoreCase = true) }) add(tag)
+    }
+}
 
 fun medicineTagsError(tags: List<String>): String? {
     val normalized = normalizeMedicineTags(tags)
