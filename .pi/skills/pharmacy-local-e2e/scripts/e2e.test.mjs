@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { validateConfig, parseRunArgs, assertResetConsent, establishLaunchOwnership, stopOwnedEmulator, assertDeviceIdentity, compactHierarchy } from './e2e.mjs';
+import os from 'node:os';
+import path from 'node:path';
+import { validateConfig, parseRunArgs, assertResetConsent, establishLaunchOwnership, stopOwnedEmulator, assertDeviceIdentity, compactHierarchy, reserveDevice, verifyReservation, releaseReservation } from './e2e.mjs';
 
 const valid = { javaHome: 'C:/trusted/jdk', androidSdk: 'C:/trusted/sdk', maestroHome: 'C:/trusted/maestro', avdName: 'Pharmacy_E2E_Comparison_API34', port: 5556 };
 test('only explicitly named dedicated emulator and local absolute paths are accepted', () => {
@@ -78,6 +80,25 @@ test('owned emulator cleanup handles ADB not-ready without touching unowned proc
   }));
   assert.equal(touched, false);
 });
+test('task reservations prevent same AVD or port reuse and only owners can release', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pharmacy-reservation-test-'));
+  const owner = { repo: 'task-A', avdName: valid.avdName, port: valid.port, token: 'owner-A' };
+  try {
+    reserveDevice(root, owner);
+    assert.doesNotThrow(() => verifyReservation(root, owner));
+    for (const patch of [{ repo: 'task-B', token: 'other' }, { port: 5560 }, { avdName: 'Pharmacy_E2E_Other_API34' }]) {
+      assert.throws(() => reserveDevice(root, { ...owner, ...patch }));
+    }
+    assert.throws(() => releaseReservation(root, { ...owner, token: 'other' }));
+    assert.doesNotThrow(() => verifyReservation(root, owner));
+    const second = { repo: 'task-B', avdName: 'Pharmacy_E2E_Backup_API34', port: 5560, token: 'owner-B' };
+    reserveDevice(root, second);
+    releaseReservation(root, second);
+    releaseReservation(root, owner);
+    assert.deepEqual(fs.readdirSync(root), []);
+  } finally { fs.rmSync(root, { recursive: true }); }
+});
+
 test('compact inspect retains actual text, resource IDs and bounds without empty wrappers', () => {
   const result = compactHierarchy({ roots: [{ attributes: {}, children: [
     { attributes: { text: '药品名称（必填）', bounds: '[1,2][3,4]', class: 'TextView' }, children: [] },

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import net from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -122,6 +123,84 @@ function checkTools(c) {
   const avds = execute(c.emulator, ['-list-avds'], c.env, { quiet: true }).split(/\r?\n/).map(s => s.trim());
   if (!avds.includes(c.config.avdName)) throw new Error('Approved dedicated AVD does not exist; ask the user to provision it.');
 }
+export function reservationPaths(root, config) {
+  return [path.join(root, `avd-${config.avdName}.json`), path.join(root, `port-${config.port}.json`)];
+}
+
+export function reserveDevice(root, owner) {
+  fs.mkdirSync(root, { recursive: true });
+  const created = [];
+  try {
+    for (const file of reservationPaths(root, owner)) {
+      const fd = fs.openSync(file, 'wx'); created.push(file);
+      try { fs.writeFileSync(fd, JSON.stringify(owner)); } finally { fs.closeSync(fd); }
+    }
+  } catch (error) {
+    created.forEach(file => fs.unlinkSync(file));
+    if (error.code !== 'EEXIST') throw error;
+    throw new Error('AVD or port is reserved by another task. Use a separately authorized AVD and unused port; do not remove its reservation.');
+  }
+}
+
+export function verifyReservation(root, owner) {
+  for (const file of reservationPaths(root, owner)) {
+    const actual = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!owner.token || actual.token !== owner.token || actual.repo !== owner.repo || actual.avdName !== owner.avdName || actual.port !== owner.port)
+      throw new Error('Task device reservation mismatch; refusing device operation.');
+  }
+}
+
+export function releaseReservation(root, owner) {
+  verifyReservation(root, owner);
+  reservationPaths(root, owner).forEach(file => fs.unlinkSync(file));
+}
+
+const reservationRoot = () => path.join(os.tmpdir(), 'pharmacy-local-e2e-reservations');
+function launchOwner(c) {
+  const owner = JSON.parse(fs.readFileSync(path.join(c.state, 'emulator-started.json'), 'utf8'));
+  if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator launch ownership mismatch.');
+  return owner;
+}
+
+function launchIdentityProbe(c, owner, requireAlive = true) {
+  const matching = `$p.Name -eq 'emulator.exe' -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '${owner.creationTime}' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)'`;
+  const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if (-not $p) { ${requireAlive ? 'exit 1' : "'exited'; exit 0"} }; if (-not (${matching})) { exit 1 }; 'alive'`;
+  return execute('powershell.exe', ['-NoProfile', '-Command', probe], c.env, { quiet: true }).trim();
+}
+
+async function confirmLaunchExit(c, owner) {
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const exited = launchIdentityProbe(c, owner, false) === 'exited';
+    const connected = inventory(c).split(/\r?\n/).some(line => line.startsWith(`${c.serial}\t`));
+    if (exited && !connected) { await assertPortsFree(c.config.port); return; }
+    await sleep(500);
+  }
+  throw new Error('Owned emulator exit is not confirmed; reservation retained. Do not start another task on this AVD/port.');
+}
+
+function reservedOwner(c, requireAlive = true) {
+  const file = path.join(c.state, 'device-reservation.json');
+  if (!fs.existsSync(file)) throw new Error('Run start for this task first; never attach to another task\'s running emulator.');
+  const owner = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (owner.repo !== c.repo || owner.avdName !== c.config.avdName || owner.port !== c.config.port) throw new Error('Local task reservation does not match current configuration.');
+  verifyReservation(reservationRoot(), owner);
+  launchIdentityProbe(c, launchOwner(c), requireAlive);
+  return owner;
+}
+
+async function assertPortsFree(port) {
+  for (const number of [port, port + 1]) for (const host of ['127.0.0.1', '::1']) {
+    const occupied = await new Promise((resolve, reject) => {
+      const socket = net.connect({ host, port: number });
+      socket.once('connect', () => { socket.destroy(); resolve(true); });
+      socket.once('error', error => { socket.destroy(); if (['ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH'].includes(error.code)) resolve(false); else reject(error); });
+      socket.setTimeout(1500, () => { socket.destroy(); reject(new Error('Cannot prove emulator ports are free.')); });
+    });
+    if (occupied) throw new Error(`Port ${number} is occupied. Use an unused even port pair; do not stop the occupant.`);
+  }
+}
+
 async function withDeviceLock(c, operation) {
   const lockDir = path.join(os.tmpdir(), 'pharmacy-local-e2e-locks'); fs.mkdirSync(lockDir, { recursive: true });
   const file = path.join(lockDir, `${c.serial}.lock`);
@@ -166,12 +245,35 @@ async function main() {
   await withDeviceLock(c, async () => {
     if (action === 'start') {
       checkTools(c);
-      if (inventory(c).split(/\r?\n/).some(s => s.startsWith(`${c.serial}\t`))) { deviceReady(c); console.log('Dedicated emulator already running; ownership unchanged.'); return; }
-      const stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a'); const stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
+      if (inventory(c).split(/\r?\n/).some(s => s.startsWith(`${c.serial}\t`))) {
+        reservedOwner(c);
+        if (!fs.existsSync(ownership)) throw new Error('This task has no launch ownership; do not reuse the running emulator.');
+        deviceReady(c); console.log('This task\'s reserved emulator is already running.'); return;
+      }
+      if (fs.existsSync(ownership) || fs.existsSync(path.join(c.state, 'device-reservation.json'))) throw new Error('Previous launch/reservation needs inspection; do not relaunch or steal its device.');
+      await assertPortsFree(c.config.port);
+      const owner = { repo: c.repo, avdName: c.config.avdName, port: c.config.port, token: crypto.randomUUID() };
+      reserveDevice(reservationRoot(), owner);
+      try { fs.writeFileSync(path.join(c.state, 'device-reservation.json'), JSON.stringify(owner), { flag: 'wx' }); }
+      catch (error) { releaseReservation(reservationRoot(), owner); throw error; }
       const launchStarted = new Date().toISOString();
-      const child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
-        { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
-      let launchError; child.on('error', error => { launchError = error; }); child.unref(); fs.closeSync(stdout); fs.closeSync(stderr);
+      let stdout, stderr, child, launchError;
+      try {
+        stdout = fs.openSync(path.join(c.state, 'emulator.stdout.log'), 'a');
+        stderr = fs.openSync(path.join(c.state, 'emulator.stderr.log'), 'a');
+        child = spawn(c.emulator, ['-avd', c.config.avdName, '-port', String(c.config.port), '-no-window', '-no-audio', '-no-boot-anim', '-no-snapshot-save'],
+          { env: c.env, detached: true, windowsHide: true, stdio: ['ignore', stdout, stderr] });
+        child.on('error', error => { launchError = error; }); child.unref();
+      } catch (error) {
+        if (!child?.pid) {
+          releaseReservation(reservationRoot(), owner);
+          fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+        }
+        throw error;
+      } finally {
+        if (stdout !== undefined) fs.closeSync(stdout);
+        if (stderr !== undefined) fs.closeSync(stderr);
+      }
       const processProbe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if ($p -and $p.Name -eq 'emulator.exe' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)') { $p.CreationDate.ToUniversalTime().ToString('o') } else { exit 1 }`;
       establishLaunchOwnership({
         captureIdentity: () => {
@@ -181,11 +283,17 @@ async function main() {
         },
         persistIdentity: creationTime => fs.writeFileSync(ownership, JSON.stringify({ pid: child.pid, creationTime, avd: c.config.avdName, serial: c.serial, repo: c.repo, started: launchStarted })),
         rollbackLaunch: creationTime => {
-          if (!Number.isSafeInteger(child.pid) || child.pid <= 0) return; // No OS process was created.
+          if (!Number.isSafeInteger(child.pid) || child.pid <= 0) {
+            releaseReservation(reservationRoot(), owner);
+            fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+            return; // No OS process was created.
+          }
           const timeCheck = creationTime ? `$p.CreationDate.ToUniversalTime().ToString('o') -eq '${creationTime}'`
             : `$p.CreationDate.ToUniversalTime() -ge [datetime]'${launchStarted}'`;
           const rollback = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${child.pid}'; if (-not $p) { exit 0 }; if (-not ($p.Name -eq 'emulator.exe' -and (${timeCheck}) -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 }; & taskkill.exe /PID ${child.pid} /T /F; exit $LASTEXITCODE`;
           execute('powershell.exe', ['-NoProfile', '-Command', rollback], c.env, { quiet: true });
+          releaseReservation(reservationRoot(), owner);
+          fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
         },
       });
       const deadline = Date.now() + 180000;
@@ -193,19 +301,25 @@ async function main() {
       throw new Error(`Dedicated emulator did not boot within 180 seconds; review ${c.state}.`);
     }
     if (action === 'stop') {
+      const reservation = reservedOwner(c, false);
       if (!fs.existsSync(ownership)) throw new Error('This runner did not start this emulator; leave it running.');
       const owner = JSON.parse(fs.readFileSync(ownership, 'utf8'));
       if (owner.avd !== c.config.avdName || owner.serial !== c.serial || owner.repo !== c.repo || !Number.isSafeInteger(owner.pid) || owner.pid <= 0 || !/^[0-9T:.+-]+Z$/.test(owner.creationTime ?? '')) throw new Error('Emulator ownership mismatch; refusing shutdown.');
       const probe = `$p = Get-CimInstance Win32_Process -Filter 'ProcessId = ${owner.pid}'; if (-not ($p -and $p.Name -eq 'emulator.exe' -and $p.CreationDate.ToUniversalTime().ToString('o') -eq '${owner.creationTime}' -and $p.CommandLine -match '-avd ${c.config.avdName}(?: |$)' -and $p.CommandLine -match '-port ${c.config.port}(?: |$)')) { exit 1 };`;
-      const method = stopOwnedEmulator({
+      const method = launchIdentityProbe(c, owner, false) === 'exited' ? 'already-exited' : stopOwnedEmulator({
         verifyOwnership: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} 'owned'`], c.env, { quiet: true }),
         checkReady: () => deviceReady(c),
         killReadyDevice: () => c.adbCall(['emu', 'kill']),
         // Recheck PID, creation time and launch arguments immediately before terminating only this owned process tree.
         terminateOwnedProcess: () => execute('powershell.exe', ['-NoProfile', '-Command', `${probe} & taskkill.exe /PID ${owner.pid} /T /F; exit $LASTEXITCODE`], c.env, { quiet: true }),
       });
-      fs.unlinkSync(ownership); console.log(`Dedicated emulator stopped (${method}).`); return;
+      await confirmLaunchExit(c, owner);
+      fs.unlinkSync(ownership);
+      releaseReservation(reservationRoot(), reservation);
+      fs.unlinkSync(path.join(c.state, 'device-reservation.json'));
+      console.log(`Dedicated emulator stopped (${method}); task reservation released.`); return;
     }
+    reservedOwner(c);
     deviceReady(c);
     const dir = outputDir(c); console.log(`Evidence: ${dir}`);
     if (action === 'screenshot') {
@@ -231,13 +345,13 @@ async function main() {
         { cwd: c.repo, timeout: 600000, log: path.join(dir, 'build.log') });
       const apk = path.join(c.repo, 'app/build/outputs/apk/debug/app-debug.apk');
       result.apkSha256 = crypto.createHash('sha256').update(fs.readFileSync(apk)).digest('hex');
-      deviceReady(c); c.adbCall(['install', '-r', apk], { timeout: 120000, log: path.join(dir, 'install.log') });
+      reservedOwner(c); deviceReady(c); c.adbCall(['install', '-r', apk], { timeout: 120000, log: path.join(dir, 'install.log') });
       const installed = c.adbCall(['shell', 'pm', 'path', APP], { quiet: true }).split(/\r?\n/).find(s => s.startsWith('package:') && s.endsWith('/base.apk'))?.slice(8);
       if (!installed) throw new Error('Installed APK not found.');
       const hash = c.adbCall(['shell', 'sha256sum', installed], { quiet: true }).trim().split(/\s+/)[0];
       if (hash !== result.apkSha256) throw new Error('Installed APK hash differs from the current build.');
       // Recheck both the resolved device identity and this invocation's explicit consent just before execution.
-      deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
+      reservedOwner(c); deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
       c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--env', 'PHARMACY_ALLOW_TEST_DATA_RESET=true', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
         '--test-output-dir', path.join(dir, 'maestro'), flow], { timeout: 300000, log: path.join(dir, 'maestro.log') });
       if (!fs.existsSync(path.join(dir, 'report.xml'))) throw new Error('Maestro succeeded without the expected JUnit report.');
