@@ -36,7 +36,7 @@
 
 - 字标、药盒/空状态插画及手绘轮廓为本任务原创路径，转换为 Android VectorDrawable；资源位于 `app/src/main/res/drawable/`。
 - **LXGW WenKai Lite Regular**：https://github.com/lxgw/LxgwWenKai-Lite ，完整字体打包为 `res/font/paper_text.ttf`，便于离线显示药品资料。未安装系统字体。
-- **Long Cang**：https://github.com/googlefonts/longcang ，本任务按静态 UI 文本与字符子集生成 `res/font/paper_display.ttf`，减小体积；用户文本由完整字体显示。
+- **Long Cang**：https://github.com/google/fonts/tree/main/ofl/longcang ，本任务按静态 UI 文本与字符子集生成 `res/font/paper_display.ttf`，减小体积；用户文本由完整字体显示。
 - 两者为 SIL Open Font License 1.1；版权与许可证随 APK 保留在 `app/src/main/assets/font-licenses/`。生成子集使用 fontTools，不加入应用/测试依赖。
 - 完整中文字体会增大 APK；这是离线保留中文字形与手绘文本风格的取舍，不引入网络字体请求。
 
