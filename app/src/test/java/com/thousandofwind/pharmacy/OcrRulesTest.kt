@@ -64,6 +64,8 @@ class OcrRulesTest {
         assertEquals("2028-06", regionCandidates("2028/06", OCR_TARGET_EXPIRY).expiry)
         assertEquals("", regionCandidates("24个月", OCR_TARGET_EXPIRY).expiry)
         assertEquals("", regionCandidates("生产日期：2028-06", OCR_TARGET_EXPIRY).expiry)
+        assertEquals("", regionCandidates("2028-06\n生产日期", OCR_TARGET_EXPIRY).expiry)
+        assertEquals("", regionCandidates("有效期至：2028-06\n有效期至：2029-06", OCR_TARGET_EXPIRY).expiry)
         assertEquals("一次4粒", regionCandidates("一次4粒", MedicineInformationField.USAGE_AND_DOSAGE.column).information.usageAndDosage)
     }
 
