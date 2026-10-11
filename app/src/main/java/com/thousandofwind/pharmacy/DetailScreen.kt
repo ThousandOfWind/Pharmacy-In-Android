@@ -35,6 +35,11 @@ fun DetailScreen(
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         if (item.photos().isNotEmpty()) PhotoStrip(item.photos())
         Text(item.name, style = MaterialTheme.typography.headlineMedium)
+        if (item.tags().isNotEmpty()) {
+            Text("标签", style = MaterialTheme.typography.titleSmall)
+            MedicineTags(item.tags())
+            Text("整理标签，不作为用药建议。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ExpiryLabel(item.expiryDate)

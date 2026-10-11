@@ -29,8 +29,11 @@ data class MedicineEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "quantity_unit", defaultValue = "''") val quantityUnit: String = "",
     @ColumnInfo(name = "photos_json", defaultValue = "'[]'") val photosJson: String = "[]",
-    @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = 0
+    @ColumnInfo(name = "updated_at", defaultValue = "0") val updatedAt: Long = 0,
+    @ColumnInfo(name = "tags_json", defaultValue = "'[]'") val tagsJson: String = "[]"
 ) {
+    fun tags(): List<String> = decodeTags(tagsJson)
+
     fun photos(): List<String> = decodePhotos(photosJson).ifEmpty {
         listOf(photoUri).filter(String::isNotBlank)
     }
@@ -40,6 +43,12 @@ fun encodePhotos(photos: List<String>): String = JSONArray(photos).toString()
 fun decodePhotos(json: String): List<String> = runCatching {
     val array = JSONArray(json)
     (0 until array.length()).map { array.getString(it) }.filter(String::isNotBlank)
+}.getOrDefault(emptyList())
+
+fun encodeTags(tags: List<String>): String = JSONArray(normalizeMedicineTags(tags)).toString()
+fun decodeTags(json: String): List<String> = runCatching {
+    val array = JSONArray(json)
+    normalizeMedicineTags((0 until array.length()).mapNotNull { array.opt(it) as? String })
 }.getOrDefault(emptyList())
 
 @Dao
@@ -57,7 +66,7 @@ interface MedicineDao {
     suspend fun delete(id: Long)
 }
 
-@Database(entities = [MedicineEntity::class], version = 3, exportSchema = false)
+@Database(entities = [MedicineEntity::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun medicineDao(): MedicineDao
 
@@ -71,11 +80,17 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE medicines ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, AppDatabase::class.java, "pharmacy.db")
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 // Intentionally no destructive fallback: an unsupported migration must not erase the cabinet.
                 .build().also { instance = it }
         }

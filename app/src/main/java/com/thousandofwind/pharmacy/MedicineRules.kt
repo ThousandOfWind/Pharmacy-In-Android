@@ -28,6 +28,47 @@ fun expiryStatus(value: String, today: LocalDate = LocalDate.now()): ExpiryStatu
     }
 }
 
+const val MAX_MEDICINE_TAGS = 8
+const val MAX_TAG_LENGTH = 12
+
+data class MedicineTagGroup(val label: String, val tags: List<String>)
+
+// Suggestions only: never infer a medicine's indications, route or storage requirements.
+val commonMedicineTagGroups = listOf(
+    MedicineTagGroup("用途整理", listOf("感冒相关", "退热", "止痛", "过敏相关", "肠胃相关", "咽喉相关", "眼部", "皮肤相关")),
+    MedicineTagGroup("使用方式", listOf("口服", "外用")),
+    MedicineTagGroup("备用场景", listOf("家庭常备", "出行备用")),
+    MedicineTagGroup("保存提示 · 请核对包装", listOf("需冷藏", "避光保存"))
+)
+
+fun normalizeMedicineTags(tags: List<String>): List<String> = buildList {
+    tags.forEach { value ->
+        val tag = value.trim()
+        // Use exactly the same Unicode case comparison as chip selection and filtering.
+        if (tag.isNotBlank() && none { it.equals(tag, ignoreCase = true) }) add(tag)
+    }
+}
+
+fun medicineTagsError(tags: List<String>): String? {
+    val normalized = normalizeMedicineTags(tags)
+    return when {
+        normalized.any { tag ->
+            tag.length > MAX_TAG_LENGTH || tag.any { it.isISOControl() || it == '\u2028' || it == '\u2029' }
+        } -> "每个标签最多 $MAX_TAG_LENGTH 个字符，不能包含换行或控制字符"
+        normalized.size > MAX_MEDICINE_TAGS -> "每条药品最多 $MAX_MEDICINE_TAGS 个标签"
+        else -> null
+    }
+}
+
+/** Tag filtering is exact (not substring); search also includes tag text. */
+fun matchesMedicineTextAndTag(
+    name: String, efficacy: String, notes: String, tags: List<String>, search: String, tag: String?
+): Boolean {
+    val query = search.trim()
+    return (tag == null || tags.any { it.equals(tag, ignoreCase = true) }) &&
+        (query.isEmpty() || (listOf(name, efficacy, notes) + tags).any { it.contains(query, ignoreCase = true) })
+}
+
 val quantityUnits = listOf("片", "粒", "盒", "瓶", "支", "袋", "板", "包", "毫升")
 
 fun quantityError(quantity: String, unit: String): String? = when {

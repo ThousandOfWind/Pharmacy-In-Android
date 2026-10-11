@@ -30,6 +30,33 @@ class MedicineRulesTest {
         listOf("-1", "1.5", "2147483648").forEach { assertNotNull(quantityError(it, "片")) }
     }
 
+    @Test fun tagsNormalizeAndEnforceLimitsWithoutDroppingValidEntries() {
+        assertEquals(listOf("外用", "Travel"), normalizeMedicineTags(listOf(" 外用 ", "", "外用", "Travel", "travel")))
+        assertEquals(listOf("İ", "Σ"), normalizeMedicineTags(listOf("İ", "i", "Σ", "ς")))
+        assertNull(medicineTagsError(emptyList()))
+        assertNull(medicineTagsError(List(MAX_MEDICINE_TAGS) { "标签$it" } + "标签0"))
+        assertNotNull(medicineTagsError(List(MAX_MEDICINE_TAGS + 1) { "标签$it" }))
+        assertNull(medicineTagsError(listOf("字".repeat(MAX_TAG_LENGTH))))
+        assertNotNull(medicineTagsError(listOf("字".repeat(MAX_TAG_LENGTH + 1))))
+        listOf("冷藏\n保存", "冷藏\u2028保存", "冷藏\u2029保存").forEach {
+            assertNotNull(medicineTagsError(listOf(it)))
+        }
+    }
+
+    @Test fun tagFilterIsExactAndIntersectsTextSearch() {
+        fun matches(query: String, tag: String?, tags: List<String> = listOf("外用", "Travel")) =
+            matchesMedicineTextAndTag("示例药", "包装文字", "抽屉", tags, query, tag)
+        assertTrue(matches("", null, emptyList())) // Legacy/untagged records remain visible.
+        assertTrue(matches("travel", "TRAVEL"))
+        assertTrue(matches("i", "i", normalizeMedicineTags(listOf("İ", "i"))))
+        assertTrue(matches("ς", "ς", normalizeMedicineTags(listOf("Σ", "ς"))))
+        assertTrue(matches("示例", "外用"))
+        assertTrue(matches("抽屉", "外用"))
+        assertFalse(matches("无匹配", "外用"))
+        assertFalse(matches("", "外"))
+        assertFalse(matches("示例", "外用", emptyList()))
+    }
+
     @Test fun ocrExtractsOnlyExplicitlyLabelledCandidates() {
         val candidates = extractCandidates("商标\n通用名称：示例药片\n生产日期：2025-01-01\n有效期至：2028年6月30日\n功能主治：包装文字")
         assertEquals("示例药片", candidates.name)
