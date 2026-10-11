@@ -199,7 +199,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                         name != null -> UUID.randomUUID().toString()
                         else -> ""
                     }
-                    val title = currentTarget?.let { it.groupName.ifBlank { it.information.genericName.ifBlank { it.name } } } ?: name?.trim().orEmpty()
+                    val title = if (currentTarget != null && currentTarget.groupKey.isNotBlank()) currentTarget.groupName else name?.trim().orEmpty()
                     if (key.isNotBlank()) require(groupNameError(title) == null) { "请使用80字符以内的药品组名称" }
                     if (currentTarget != null) dao.associateGroup(currentTarget.id, key, title)
                     dao.associateGroup(item.id, key, title)

@@ -65,8 +65,10 @@ fun GroupLinkDialog(item: MedicineEntity, all: List<MedicineEntity>, busy: Boole
                 if (item.groupKey.isNotBlank()) TextButton(onClick = { link(null, null); dismiss() }, enabled = !busy) { Text("移出药品组（保留库存）") }
             }
             items(options, key = { it.key }) { group ->
-                TextButton(onClick = { link(group.records.first(), null); dismiss() }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
-                    Text("关联到 ${group.name}（${group.records.size} 条）")
+                val target = group.records.first()
+                TextButton(onClick = { link(target, if (target.groupKey.isBlank()) name else null); dismiss() },
+                    enabled = !busy && (target.groupKey.isNotBlank() || groupNameError(name) == null), modifier = Modifier.fillMaxWidth()) {
+                    Text(if (target.groupKey.isBlank()) "与 ${target.name} 关联（使用上方组名）" else "关联到 ${group.name}（${group.records.size} 条）")
                 }
             }
         }
