@@ -45,7 +45,14 @@ fun PaperWordmark() {
     }
 }
 
-enum class InkSymbol { SEARCH, PLUS, BACK, NEXT, DOWN, MORE, FILTER, CHECK, CLOSE, CAMERA, BOOK, WARNING }
+enum class InkSymbol { SEARCH, PLUS, BACK, NEXT, DOWN, MORE, FILTER, CHECK, CLOSE, STOP, CAMERA, BOOK, WARNING }
+
+@Composable
+fun InkIconButton(symbol: InkSymbol, label: String, onClick: () -> Unit, enabled: Boolean = true) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.semantics { contentDescription = label }) {
+        InkIcon(symbol, color = LocalContentColor.current)
+    }
+}
 
 @Composable
 fun InkIcon(symbol: InkSymbol, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.primary) {
@@ -68,6 +75,7 @@ fun InkIcon(symbol: InkSymbol, modifier: Modifier = Modifier, color: Color = Mat
                 InkSymbol.FILTER -> { line(4f, 7f, 24f, 7f); line(7f, 14f, 21f, 13f); line(10f, 21f, 18f, 20f); line(10f, 4f, 10f, 10f); line(18f, 11f, 17f, 17f); line(13f, 18f, 13f, 24f) }
                 InkSymbol.CHECK -> { p.moveTo(5f, 15f); p.lineTo(11f, 21f); p.quadraticBezierTo(19f, 9f, 24f, 5f) }
                 InkSymbol.CLOSE -> { line(6f, 6f, 23f, 23f); line(22f, 5f, 5f, 23f) }
+                InkSymbol.STOP -> { p.moveTo(6f, 6f); p.lineTo(22f, 6f); p.lineTo(22f, 22f); p.lineTo(6f, 22f); p.close() }
                 InkSymbol.CAMERA -> {
                     p.moveTo(4f, 10f); p.lineTo(9f, 9f); p.lineTo(11f, 5f); p.lineTo(19f, 6f); p.lineTo(21f, 10f)
                     p.lineTo(25f, 10f); p.lineTo(24f, 25f); p.lineTo(3f, 24f); p.close()
