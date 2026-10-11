@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val updateViewModel by viewModels<AppUpdateViewModel>()
+    private val backupViewModel by viewModels<BackupViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,21 +49,30 @@ class MainActivity : ComponentActivity() {
             isAppearanceLightNavigationBars = true
         }
         setContent {
-            PharmacyTheme { MedicineApp(viewModel, updateViewModel) }
+            PharmacyTheme { MedicineApp(viewModel, updateViewModel, backupViewModel) }
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel) {
+fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewModel, backupViewModel: BackupViewModel) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val backupState by backupViewModel.uiState.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     val screenState = rememberSaveableStateHolder()
     var showAdd by rememberSaveable { mutableStateOf(false) }
     var showUpdate by rememberSaveable { mutableStateOf(false) }
     var showMore by rememberSaveable { mutableStateOf(false) }
+    var showBackup by rememberSaveable { mutableStateOf(false) }
+    var showGroupLink by rememberSaveable { mutableStateOf(false) }
+    val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) backupViewModel.export(uri)
+    }
+    val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) backupViewModel.prepare(uri)
+    }
     var confirmLeave by rememberSaveable { mutableStateOf(false) }
     var cameraUri by rememberSaveable { mutableStateOf("") }
 
@@ -112,7 +122,11 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
             TopAppBar(
                 title = {
                     if (state.session.screen == Screen.CABINET) PaperWordmark()
-                    else Text(if (state.session.screen == Screen.DETAIL) "药品详情" else if (state.session.draft.id == 0L) "核对并添加" else "编辑药品", style = PaperHeading)
+                    else Text(when (state.session.screen) {
+                        Screen.GROUP -> "药品组"
+                        Screen.DETAIL -> "药品详情"
+                        else -> if (state.session.draft.id == 0L) "核对并添加" else "编辑药品"
+                    }, style = MaterialTheme.typography.titleLarge)
                 },
                 navigationIcon = {
                     if (state.session.screen != Screen.CABINET) TextButton(onClick = ::back, enabled = !state.busy) { InkIcon(InkSymbol.BACK); Text("返回") }
@@ -123,10 +137,15 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                             TextButton(onClick = { showMore = true }) { InkIcon(InkSymbol.MORE); Text("更多") }
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
                                 DropdownMenuItem(text = { Text("检查更新") }, onClick = { showMore = false; showUpdate = true })
+                                DropdownMenuItem(text = { Text("备份与恢复") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
+                                    onClick = { showMore = false; showBackup = true })
                             }
                         }
                     } else if (state.session.screen == Screen.DETAIL) {
-                        state.selected?.let { item -> TextButton(onClick = { viewModel.edit(item) }, enabled = !state.busy) { Text("编辑") } }
+                        state.selected?.let { item ->
+                            TextButton(onClick = { showGroupLink = true }, enabled = !state.busy) { Text("关联") }
+                            TextButton(onClick = { viewModel.edit(item) }, enabled = !state.busy) { Text("编辑") }
+                        }
                     }
                 }
             )
@@ -159,9 +178,19 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         (fadeOut(tween(120)) + slideOutHorizontally(tween(180)) { -direction * it / 40 })
                 }, label = "page transition"
             ) { page ->
-                screenState.SaveableStateProvider(if (page.session.screen == Screen.DETAIL) "detail-${page.session.selectedId}" else page.session.screen) {
+                screenState.SaveableStateProvider(when (page.session.screen) {
+                    Screen.DETAIL -> "detail-${page.session.selectedId}"
+                    Screen.GROUP -> "stock-group-${page.session.groupKey}"
+                    else -> page.session.screen
+                }) {
                     when (page.session.screen) {
-                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open)
+                        Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup)
+                        Screen.GROUP -> page.selectedGroup?.let { group ->
+                            GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
+                        } ?: Column(Modifier.padding(24.dp)) {
+                            Text(if (!page.loaded) "正在读取药品组…" else page.databaseError ?: "这个药品组已不存在，库存记录仍在药箱中。")
+                            TextButton(onClick = viewModel::back) { Text("回到药箱") }
+                        }
                         Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto, viewModel::scanRegion)
                         Screen.DETAIL -> page.selected?.let { item ->
                             DetailScreen(item, page.busy, { viewModel.edit(item) },
@@ -175,7 +204,17 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
             }
         }
     }
+    if (showGroupLink) state.selected?.let { item ->
+        GroupLinkDialog(item, state.medicines, state.busy, { showGroupLink = false }) { target, name -> viewModel.linkGroup(item, target, name) }
+    }
     if (showUpdate) UpdateDialog(updateViewModel, onDismiss = { showUpdate = false })
+    if (showBackup) BackupDialog(
+        backupState,
+        dismiss = { if (!backupState.busy) { backupViewModel.discard(); showBackup = false } },
+        export = { createBackup.launch("pharmacy-backup-${java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))}.zip") },
+        choose = { openBackup.launch(arrayOf("application/zip", "application/octet-stream")) },
+        restore = backupViewModel::restore, cancel = backupViewModel::discard
+    )
     if (showAdd) ModalBottomSheet(onDismissRequest = { showAdd = false }) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Text("收好新的一盒", style = PaperHeading)
