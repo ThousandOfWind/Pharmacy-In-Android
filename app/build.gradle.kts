@@ -12,11 +12,21 @@ android {
         applicationId = "com.thousandofwind.pharmacy"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = providers.gradleProperty("pharmacyVersionCode").orNull?.toInt() ?: 1
+        versionName = providers.gradleProperty("pharmacyVersionName").orNull ?: "1.0"
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    // Main CI builds use a fixed private debug key; local/PR builds keep the usual local debug key.
+    System.getenv("PHARMACY_SIGNING_STORE")?.takeIf { it.isNotBlank() }?.let { path ->
+        signingConfigs.getByName("debug") {
+            storeFile = file(path)
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
         }
     }
 
