@@ -62,11 +62,12 @@ fun medicineTagsError(tags: List<String>): String? {
 
 /** Tag filtering is exact (not substring); search also includes tag text. */
 fun matchesMedicineTextAndTag(
-    name: String, efficacy: String, notes: String, tags: List<String>, search: String, tag: String?
+    name: String, efficacy: String, notes: String, tags: List<String>, search: String, tag: String?,
+    extraText: List<String> = emptyList()
 ): Boolean {
     val query = search.trim()
     return (tag == null || tags.any { it.equals(tag, ignoreCase = true) }) &&
-        (query.isEmpty() || (listOf(name, efficacy, notes) + tags).any { it.contains(query, ignoreCase = true) })
+        (query.isEmpty() || (listOf(name, efficacy, notes) + tags + extraText).any { it.contains(query, ignoreCase = true) })
 }
 
 val quantityUnits = listOf("片", "粒", "盒", "瓶", "支", "袋", "板", "包", "毫升")
