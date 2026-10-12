@@ -199,7 +199,7 @@ fun MedicineRow(
 ) {
     val background by animateColorAsState(if (highlighted) PaperPalette.Wash.copy(alpha = .5f) else PaperPalette.Paper, tween(220), label = "saved record")
     Column {
-        val action = if (selection == null) Modifier.clickable(enabled = enabled, onClick = open)
+        val action = if (selection == null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = open)
             else Modifier.toggleable(value = selection, enabled = enabled, role = Role.Checkbox, onValueChange = { open() })
         Surface(color = background, modifier = Modifier.fillMaxWidth().then(action)) {
             Row(Modifier.padding(vertical = 15.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
