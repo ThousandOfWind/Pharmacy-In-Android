@@ -21,17 +21,16 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("① 核对识别结果", style = MaterialTheme.typography.titleMedium)
             Text("下面是待核对文字，不是按钮。请对照照片；识别结果不会自动写入资料栏。", style = MaterialTheme.typography.bodySmall)
-            if (c.name.isNotBlank()) CandidateText("药品名称", c.name)
+            if (c.name.isNotBlank()) {
+                CandidateText("药品名称", c.name)
+                CandidateNameButton(draft, c.name, busy, update)
+            }
             if (c.expiry.isNotBlank()) CandidateText("有效期至", c.expiry)
             if (c.nameOptions.isNotEmpty()) {
                 Text("药名候选 · 点击按钮选择", style = MaterialTheme.typography.labelLarge)
                 c.nameOptions.forEachIndexed { index, name ->
                     CandidateText("药名候选 ${index + 1}", name)
-                    OutlinedButton(onClick = { update { toggleOcrName(this, name) } },
-                        enabled = toggleOcrName(draft, name) != draft && !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (draft.ocrSelectedName == name && draft.name == name) "已选此药名 · 点击取消"
-                            else if (draft.name.isNotBlank()) "名称已有填写 · 不覆盖" else "选择此药名")
-                    }
+                    CandidateNameButton(draft, name, busy, update)
                 }
             }
             if (c.name.isBlank() && c.nameOptions.isEmpty()) Text("药名未提取到，可补拍正面或手动填写。", style = MaterialTheme.typography.bodySmall)
@@ -93,6 +92,15 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
             }
             Text("③ 前往基本资料检查，勾选底部确认框，再保存", style = MaterialTheme.typography.labelLarge, color = PaperPalette.Green)
         }
+    }
+}
+
+@Composable
+private fun CandidateNameButton(draft: MedicineDraft, name: String, busy: Boolean, update: (MedicineDraft.() -> MedicineDraft) -> Unit) {
+    OutlinedButton(onClick = { update { toggleOcrName(this, name) } },
+        enabled = toggleOcrName(draft, name) != draft && !busy, modifier = Modifier.fillMaxWidth()) {
+        Text(if (draft.ocrSelectedName == name && draft.name == name) "已选此药名 · 点击取消"
+            else if (draft.name.isNotBlank()) "名称已有填写 · 不覆盖" else "选择此药名")
     }
 }
 

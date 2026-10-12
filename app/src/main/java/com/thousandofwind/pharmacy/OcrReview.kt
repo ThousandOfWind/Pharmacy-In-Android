@@ -2,7 +2,7 @@ package com.thousandofwind.pharmacy
 
 /** Only undo a name actually adopted through this candidate control, never a matching manual name. */
 fun toggleOcrName(draft: MedicineDraft, name: String): MedicineDraft = when {
-    name !in draft.candidates.nameOptions -> draft
+    name.isBlank() || (name != draft.candidates.name && name !in draft.candidates.nameOptions) -> draft
     draft.name == name && draft.ocrSelectedName == name -> draft.copy(name = "", ocrSelectedName = "", reviewed = false)
     draft.name.isBlank() -> draft.copy(name = name, ocrSelectedName = name, reviewed = false)
     else -> draft
@@ -18,6 +18,7 @@ fun fillEmptyOcrFields(draft: MedicineDraft, includeLeaflet: Boolean = false): M
             current.withValue(field, candidates.information[field]) else current
     }
     val filled = draft.copy(
+        ocrSelectedName = if (draft.name.isBlank() && candidates.name.isNotBlank()) candidates.name else draft.ocrSelectedName,
         name = draft.name.ifBlank { candidates.name }, expiry = draft.expiry.ifBlank { candidates.expiry },
         efficacy = if (includeLeaflet) draft.efficacy.ifBlank { candidates.efficacy } else draft.efficacy,
         information = info
