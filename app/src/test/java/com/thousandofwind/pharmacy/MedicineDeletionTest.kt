@@ -21,9 +21,16 @@ class MedicineDeletionTest {
         assertTrue(shouldFinishUndoWindow(original, original)) // natural expiry or collector teardown
         assertFalse(shouldFinishUndoWindow(original, UiNotice("旧照片清理失败", "batch-a")))
         assertFalse(shouldFinishUndoWindow(original, original.copy())) // a new emission of the same window
+        assertTrue(shouldFinishUndoWindow(original, UiNotice("迟到警告", "batch-a"), completed = true))
         assertTrue(shouldFinishUndoWindow(original, UiNotice("已移出", "batch-b")))
         assertTrue(shouldFinishUndoWindow(original, UiNotice("其他提示")))
         assertFalse(shouldFinishUndoWindow(UiNotice("无撤销"), original))
+        val batch = DeletedBatch("batch-a", listOf(record(1)))
+        assertEquals("batch-a", batch.undoToken)
+        val logicallyExpired = batch.copy(windowClosed = true)
+        assertNull(logicallyExpired.undoToken) // old cleanup is still busy; late warning cannot revive undo
+        assertEquals(batch.records, logicallyExpired.records) // bytes stay protected until physical cleanup
+        assertNull(logicallyExpired.copy().undoToken)
     }
 
     @Test fun deletionRequiresAllConfirmedIdsAndUsesFreshCompleteRecords() {

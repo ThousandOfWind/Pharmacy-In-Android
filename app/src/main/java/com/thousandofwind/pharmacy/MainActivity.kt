@@ -129,15 +129,19 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         var newestNotice: UiNotice? = null
         viewModel.events.onEach { newestNotice = it }.collectLatest { notice ->
             var undoRequested = false
+            var completed = false
             try {
+                // Recheck when displaying too: a buffered warning must not revive an expired window.
+                val undoToken = notice.undoToken?.takeIf(viewModel::canUndoRemoval)
                 // A new notice immediately replaces the old snackbar, especially a newer undo batch.
-                val result = snackbar.showSnackbar(notice.text, actionLabel = if (notice.undoToken != null) "撤销" else null,
-                    duration = if (notice.undoToken != null) SnackbarDuration.Long else SnackbarDuration.Short)
-                undoRequested = notice.undoToken != null && result == SnackbarResult.ActionPerformed
-                if (undoRequested) viewModel.undoRemove(requireNotNull(notice.undoToken))
+                val result = snackbar.showSnackbar(notice.text, actionLabel = if (undoToken != null) "撤销" else null,
+                    duration = if (undoToken != null) SnackbarDuration.Long else SnackbarDuration.Short)
+                completed = true
+                undoRequested = undoToken != null && result == SnackbarResult.ActionPerformed
+                if (undoRequested) viewModel.undoRemove(requireNotNull(undoToken))
             } finally {
                 // A same-token cleanup warning replaces text, not the current batch's undo window.
-                if (!undoRequested && shouldFinishUndoWindow(notice, newestNotice)) notice.undoToken?.let(viewModel::finishRemove)
+                if (!undoRequested && shouldFinishUndoWindow(notice, newestNotice, completed)) notice.undoToken?.let(viewModel::finishRemove)
             }
         }
     }

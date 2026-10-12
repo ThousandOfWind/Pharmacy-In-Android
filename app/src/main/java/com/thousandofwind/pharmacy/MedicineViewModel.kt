@@ -145,7 +145,6 @@ data class UiState(
 }
 
 data class UiNotice(val text: String, val undoToken: String? = null)
-private data class DeletedBatch(val token: String, val records: List<MedicineEntity>)
 private data class Records(val items: List<MedicineEntity> = emptyList(), val loaded: Boolean = false, val error: String? = null)
 
 class MedicineViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
@@ -407,7 +406,9 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 notices.send(UiNotice("已移出 ${deleted.size} 条库存记录", batch.token))
                 done(true)
                 if (!cleanupPhotos(previous?.records.orEmpty().flatMap { it.photos() })) {
-                    notices.send(UiNotice("已移出 ${deleted.size} 条库存记录；部分旧照片清理失败", batch.token))
+                    // A window that expired during IO must not be revived by a late warning.
+                    val undoToken = removed?.takeIf { it.token == batch.token }?.undoToken
+                    notices.send(UiNotice("已移出 ${deleted.size} 条库存记录；部分旧照片清理失败", undoToken))
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -416,11 +417,13 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         }
     }
 
+    fun canUndoRemoval(token: String) = removed?.undoToken == token
+
     fun undoRemove(token: String) {
         viewModelScope.launch {
             // Accept the click immediately; wait for old-file cleanup without losing this batch.
             busy.first { !it }
-            val batch = removed?.takeIf { it.token == token } ?: run { report("这次移出已无法撤销"); return@launch }
+            val batch = removed?.takeIf { it.undoToken == token } ?: run { report("这次移出已无法撤销"); return@launch }
             busy.value = true
             try {
                 db.withTransaction { dao.restoreRecords(batch.records) }
@@ -438,11 +441,14 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
 
     /** A stale snackbar must never expire or undo a newer batch. */
     fun finishRemove(token: String) {
+        val current = removed?.takeIf { it.token == token } ?: return
+        // Close synchronously, even while busy; a queued cleanup may run much later.
+        removed = current.copy(windowClosed = true)
         viewModelScope.launch {
             // Do not expire photos between a new DELETE commit and publication of its undo batch.
             // Claim busy without a suspension after waiting, then recheck this exact token.
             busy.first { !it }
-            val batch = removed?.takeIf { it.token == token } ?: return@launch
+            val batch = removed?.takeIf { it.token == token && it.windowClosed } ?: return@launch
             busy.value = true
             removed = null
             try {
