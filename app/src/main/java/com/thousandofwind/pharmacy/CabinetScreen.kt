@@ -3,6 +3,8 @@ package com.thousandofwind.pharmacy
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -27,12 +30,17 @@ import coil.compose.AsyncImage
 fun CabinetScreen(
     state: UiState, search: (String) -> Unit, filter: (CabinetFilter) -> Unit, filterTag: (String?) -> Unit,
     add: () -> Unit, open: (MedicineEntity) -> Unit, openGroup: (CabinetGroup) -> Unit,
-    importBackup: () -> Unit, canImport: Boolean
+    importBackup: () -> Unit, canImport: Boolean,
+    manage: () -> Unit, finishManaging: () -> Unit, toggleDeletion: (Long) -> Unit,
+    selectVisible: () -> Unit
 ) {
     val rows = state.visible
     val groups = cabinetGroups(rows)
     val listState = rememberLazyListState()
     var showFilters by rememberSaveable { mutableStateOf(false) }
+    val managing = state.session.managing
+    val selected = state.selectedForDeletion
+    val canManage = state.loaded && state.databaseError == null && !state.busy && !state.scanning
     val filtered = state.session.filter != CabinetFilter.ALL || state.session.tag != null
     LaunchedEffect(state.session.highlightId, rows.map { it.id }) {
         val index = groups.indexOfFirst { group -> group.records.any { it.id == state.session.highlightId } }
@@ -89,12 +97,26 @@ fun CabinetScreen(
                             state.session.search.isNotBlank() -> "找到 ${rows.size} 条记录"
                             state.session.filter == CabinetFilter.ATTENTION -> "需要留意的药"
                             filtered -> "筛选结果"
+                            managing -> "已选 ${selected.size} 条 / 共 ${rows.size} 条"
                             else -> "药箱里的药"
-                        }, Modifier.weight(1f), style = if (state.session.search.isBlank()) PaperHeading else MaterialTheme.typography.titleSmall,
+                        }, Modifier.weight(1f), style = if (managing || state.session.search.isNotBlank()) MaterialTheme.typography.titleSmall else PaperHeading,
                         color = PaperPalette.Muted
                     )
-                    TextButton(onClick = { showFilters = true }) { InkIcon(InkSymbol.FILTER); Spacer(Modifier.width(5.dp)); Text("筛选") }
+                    TextButton(onClick = { showFilters = true }, enabled = !state.busy) { InkIcon(InkSymbol.FILTER); Spacer(Modifier.width(5.dp)); Text("筛选") }
                 }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    if (managing) {
+                        Text("已选 ${selected.size} 条库存", Modifier.weight(1f), color = PaperPalette.Muted)
+                        TextButton(onClick = selectVisible, enabled = canManage && rows.isNotEmpty()) {
+                            Text(if (rows.isNotEmpty() && selected.size == rows.size) "取消全选" else "全选当前结果")
+                        }
+                        TextButton(onClick = finishManaging, enabled = !state.busy) { Text("完成") }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = manage, enabled = canManage && rows.isNotEmpty()) { Text("批量管理") }
+                    }
+                }
+                if (managing) Text("搜索或筛选变化会清空勾选；每条库存独立选择。", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
                 if (filtered) {
                     TextButton(onClick = { filter(CabinetFilter.ALL); filterTag(null) }, modifier = Modifier.paperBorder()) {
                         Text(listOfNotNull(state.session.filter.takeUnless { it == CabinetFilter.ALL }?.label, state.session.tag).joinToString(" · "))
@@ -111,13 +133,20 @@ fun CabinetScreen(
                         state = listState, modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(top = 4.dp, bottom = 18.dp)
                     ) {
-                        items(groups, key = { it.key }) { group ->
-                            if (group.records.first().groupKey.isBlank()) {
-                                val item = group.records.first()
-                                MedicineRow(item, item.id == state.session.highlightId, { open(item) })
-                            } else {
-                                val complete = group.copy(records = state.medicines.filter { "group:${it.groupKey}" == group.key })
-                                GroupRow(complete, group.records.size, group.records.any { it.id == state.session.highlightId }, { openGroup(complete) })
+                        if (managing) {
+                            items(rows, key = { it.id }) { item ->
+                                MedicineRow(item, false, { toggleDeletion(item.id) }, showStock = true,
+                                    selection = item.id in state.session.deletionIds, enabled = canManage)
+                            }
+                        } else {
+                            items(groups, key = { it.key }) { group ->
+                                if (group.records.first().groupKey.isBlank()) {
+                                    val item = group.records.first()
+                                    MedicineRow(item, item.id == state.session.highlightId, { open(item) })
+                                } else {
+                                    val complete = group.copy(records = state.medicines.filter { "group:${it.groupKey}" == group.key })
+                                    GroupRow(complete, group.records.size, group.records.any { it.id == state.session.highlightId }, { openGroup(complete) })
+                                }
                             }
                         }
                     }
@@ -153,11 +182,17 @@ fun CabinetScreen(
 }
 
 @Composable
-fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, showStock: Boolean = false) {
+fun MedicineRow(
+    item: MedicineEntity, highlighted: Boolean, open: () -> Unit, showStock: Boolean = false,
+    selection: Boolean? = null, enabled: Boolean = true
+) {
     val background by animateColorAsState(if (highlighted) PaperPalette.Wash.copy(alpha = .5f) else PaperPalette.Paper, tween(220), label = "saved record")
     Column {
-        Surface(onClick = open, color = background, modifier = Modifier.fillMaxWidth()) {
+        val action = if (selection == null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = open)
+            else Modifier.toggleable(value = selection, enabled = enabled, role = Role.Checkbox, onValueChange = { open() })
+        Surface(color = background, modifier = Modifier.fillMaxWidth().then(action)) {
             Row(Modifier.padding(vertical = 15.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (selection != null) Checkbox(checked = selection, onCheckedChange = null, enabled = enabled)
                 val photo = item.photos().firstOrNull()
                 if (photo == null) Image(painterResource(R.drawable.ink_package), null, Modifier.width(44.dp).height(58.dp))
                 else AsyncImage(model = photo, contentDescription = "${item.name}的包装照片", modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small).background(PaperPalette.Wash), contentScale = ContentScale.Crop)
@@ -172,6 +207,8 @@ fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, sh
                         ExpiryStatus.VALID -> Unit
                     }
                     if (showStock) {
+                        if (selection != null && item.groupName.isNotBlank()) Text("药品组：${item.groupName}", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
+                        if (selection != null && item.information.batchNumber.isNotBlank()) Text("批号：${item.information.batchNumber}", style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
                         ExpiryLabel(item.expiryDate)
                         Text(remainingLabel(item.remainingQuantity, item.quantityUnit), style = MaterialTheme.typography.bodyMedium)
                         if (item.information.storageLocation.isNotBlank()) Text(item.information.storageLocation, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Muted)
@@ -179,7 +216,7 @@ fun MedicineRow(item: MedicineEntity, highlighted: Boolean, open: () -> Unit, sh
                     val tags = item.tags()
                     if (tags.isNotEmpty()) MedicineTags(tags, limit = 3)
                 }
-                InkIcon(InkSymbol.NEXT, modifier = Modifier.size(18.dp), color = PaperPalette.Frame)
+                if (selection == null) InkIcon(InkSymbol.NEXT, modifier = Modifier.size(18.dp), color = PaperPalette.Frame)
             }
         }
         InkDivider()

@@ -29,7 +29,7 @@ import coil.compose.AsyncImage
 @Composable
 fun DetailScreen(
     item: MedicineEntity, busy: Boolean, edit: () -> Unit,
-    updateStock: (String, String, (Boolean) -> Unit) -> Unit, remove: () -> Unit
+    updateStock: (String, String, (Boolean) -> Unit) -> Unit, remove: ((Boolean) -> Unit) -> Unit
 ) {
     var stock by rememberSaveable(item.id) { mutableStateOf(false) }
     var confirmRemove by rememberSaveable(item.id) { mutableStateOf(false) }
@@ -48,6 +48,9 @@ fun DetailScreen(
             val photo = item.photos().firstOrNull()
             if (photo == null) Image(painterResource(R.drawable.ink_package), null, Modifier.width(72.dp).height(88.dp))
             else AsyncImage(photo, "${item.name}的包装照片", modifier = Modifier.size(78.dp).clip(MaterialTheme.shapes.small).clickable { photos = true }, contentScale = ContentScale.Crop)
+        }
+        TextButton(onClick = { confirmRemove = true }, enabled = !busy, modifier = Modifier.align(Alignment.End).paperBorder()) {
+            Text("移出药箱", color = MaterialTheme.colorScheme.error)
         }
         val tags = item.tags()
         if (tags.isNotEmpty()) {
@@ -98,15 +101,11 @@ fun DetailScreen(
             Text("长按可选择并复制；历史原文可能包含已移除照片的识别结果。", style = MaterialTheme.typography.bodySmall)
             SelectableOcrText(item.ocrRawText)
         }
-        TextButton(onClick = { confirmRemove = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("移出药箱", color = MaterialTheme.colorScheme.error) }
     }
     if (stock) StockDialog(item, busy, { stock = false }, updateStock)
-    if (confirmRemove) AlertDialog(
-        onDismissRequest = { if (!busy) confirmRemove = false },
-        title = { Text("移出药箱？") }, text = { Text("将移除“${item.name}”这条库存记录。移除后可通过提示条撤销。") },
-        confirmButton = { TextButton(onClick = { confirmRemove = false; remove() }, enabled = !busy) { Text("确认移除") } },
-        dismissButton = { TextButton(onClick = { confirmRemove = false }, enabled = !busy) { Text("保留") } }
-    )
+    if (confirmRemove) DeleteMedicineDialog(listOf(item), busy, { confirmRemove = false }) {
+        remove { success -> if (success) confirmRemove = false }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

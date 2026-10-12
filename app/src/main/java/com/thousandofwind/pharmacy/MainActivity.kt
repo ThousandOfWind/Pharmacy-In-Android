@@ -33,6 +33,8 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.thousandofwind.pharmacy.ai.AiScreen
 import com.thousandofwind.pharmacy.ai.AiViewModel
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.onEach
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MedicineViewModel> {
@@ -71,6 +73,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     var showMore by rememberSaveable { mutableStateOf(false) }
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showGroupLink by rememberSaveable { mutableStateOf(false) }
+    var pendingDeletion by rememberSaveable { mutableStateOf(longArrayOf()) }
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) backupViewModel.export(uri)
     }
@@ -118,15 +121,28 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     fun back() {
         if (viewModel.hasUnsavedChanges()) confirmLeave = true else viewModel.back()
     }
-    BackHandler(state.session.screen != Screen.CABINET) { if (!state.busy) back() }
+    BackHandler(state.session.screen != Screen.CABINET || state.session.managing) { if (!state.busy) back() }
     LaunchedEffect(state.session.screen) {
         if (state.session.screen != Screen.EDITOR) screenState.removeState(Screen.EDITOR)
     }
     LaunchedEffect(viewModel) {
-        viewModel.events.collect { notice ->
-            val result = snackbar.showSnackbar(notice.text, actionLabel = if (notice.canUndo) "撤销" else null,
-                duration = if (notice.canUndo) SnackbarDuration.Long else SnackbarDuration.Short)
-            if (notice.canUndo && result == SnackbarResult.ActionPerformed) viewModel.undoRemove()
+        var newestNotice: UiNotice? = null
+        viewModel.events.onEach { newestNotice = it }.collectLatest { notice ->
+            var undoRequested = false
+            var completed = false
+            try {
+                // Recheck when displaying too: a buffered warning must not revive an expired window.
+                val undoToken = notice.undoToken?.takeIf(viewModel::canUndoRemoval)
+                // A new notice immediately replaces the old snackbar, especially a newer undo batch.
+                val result = snackbar.showSnackbar(notice.text, actionLabel = if (undoToken != null) "撤销" else null,
+                    duration = if (undoToken != null) SnackbarDuration.Long else SnackbarDuration.Short)
+                completed = true
+                undoRequested = undoToken != null && result == SnackbarResult.ActionPerformed
+                if (undoRequested) viewModel.undoRemove(requireNotNull(undoToken))
+            } finally {
+                // A same-token cleanup warning replaces text, not the current batch's undo window.
+                if (!undoRequested && shouldFinishUndoWindow(notice, newestNotice, completed)) notice.undoToken?.let(viewModel::finishRemove)
+            }
         }
     }
     Scaffold(
@@ -147,7 +163,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                 actions = {
                     if (state.session.screen == Screen.CABINET) {
                         Box {
-                            InkIconButton(InkSymbol.MORE, "更多", { showMore = true })
+                            InkIconButton(InkSymbol.MORE, "更多", { showMore = true }, enabled = !state.session.managing && !state.busy)
                             DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
                                 DropdownMenuItem(text = { Text("AI 助手") }, onClick = { showMore = false; showAi = true })
                                 DropdownMenuItem(text = { Text("备份与换机") }, enabled = state.loaded && state.databaseError == null && !state.busy && !state.scanning,
@@ -166,7 +182,18 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            if (state.session.screen == Screen.CABINET && state.loaded && state.databaseError == null && state.medicines.isNotEmpty()) {
+            if (state.session.screen == Screen.CABINET && state.session.managing && state.loaded && state.databaseError == null) {
+                Surface {
+                    TextButton(
+                        onClick = { pendingDeletion = state.selectedForDeletion.map { it.id }.toLongArray() },
+                        enabled = !state.busy && !state.scanning && state.selectedForDeletion.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp).paperBorder()
+                    ) {
+                        Text(if (state.busy) "正在移出…" else "移出药箱（${state.selectedForDeletion.size} 条）", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (state.session.screen == Screen.CABINET && !state.session.managing && state.loaded && state.databaseError == null && state.medicines.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) {
                     PenButton("添加药品", { showAdd = true }, icon = InkSymbol.PLUS)
                 }
@@ -199,7 +226,9 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                 }) {
                     when (page.session.screen) {
                         Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup,
-                            importBackup = { showBackup = true }, canImport = !page.busy && !page.scanning)
+                            importBackup = { showBackup = true }, canImport = !page.busy && !page.scanning,
+                            manage = viewModel::manage, finishManaging = viewModel::finishManaging,
+                            toggleDeletion = viewModel::toggleDeletion, selectVisible = viewModel::selectVisibleForDeletion)
                         Screen.GROUP -> page.selectedGroup?.let { group ->
                             GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
                         } ?: Column(Modifier.padding(24.dp)) {
@@ -210,7 +239,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                             viewModel::rotatePhoto, viewModel::deletePhoto, viewModel::rescanPhoto)
                         Screen.DETAIL -> page.selected?.let { item ->
                             DetailScreen(item, page.busy, { viewModel.edit(item) },
-                                { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) }, { viewModel.remove(item) })
+                                { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) },
+                                { done -> viewModel.remove(setOf(item.id), done) })
                         } ?: Column(Modifier.padding(24.dp)) {
                             Text(if (!page.loaded) "正在读取…" else page.databaseError ?: "这条记录已不在药箱中")
                             TextButton(onClick = viewModel::back) { Text("回到药箱") }
@@ -218,6 +248,12 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                     }
                 }
             }
+        }
+    }
+    if (pendingDeletion.isNotEmpty()) {
+        val ids = pendingDeletion.toSet()
+        DeleteMedicineDialog(state.medicines.filter { it.id in ids }, state.busy, { pendingDeletion = longArrayOf() }) {
+            viewModel.remove(ids) { pendingDeletion = longArrayOf() }
         }
     }
     if (showAi) AiScreen(aiViewModel, dismiss = { showAi = false }, openMedicine = { id ->
