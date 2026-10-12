@@ -79,6 +79,16 @@ fun AboutDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
                     Text("新版本 ${update.versionName} · ${update.size / (1024 * 1024)} MB")
                     if (update.notes.isNotBlank()) Text(update.notes, style = MaterialTheme.typography.bodySmall)
                 }
+                TextButton(onClick = {
+                    // Use the checked tag when available; otherwise let the browser resolve latest.
+                    val page = state.update?.let { "https://github.com/$UPDATE_REPOSITORY/releases/tag/${it.tag}" }
+                        ?: LATEST_RELEASE_PAGE
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(page)))
+                    }.onFailure { viewModel.report("无法打开浏览器。请手动访问 $LATEST_RELEASE_PAGE。") }
+                }) { Text("浏览器下载 / 发布说明") }
+                Text("浏览器下载不经过应用内校验，请只选官方 app-debug.apk，并由系统确认安装。不要卸载旧版或清除药箱。",
+                    style = MaterialTheme.typography.bodySmall)
                 Text("更新来源：GitHub / $UPDATE_REPOSITORY\n仅手动更新；首次安装可能需要允许本应用安装未知应用。", style = MaterialTheme.typography.bodySmall)
             }
         },

@@ -14,7 +14,7 @@ import java.util.UUID
 
 internal fun MedicineEntity.backupRecord(photoHashes: List<String>) = BackupRecord(
     name, expiryDate, efficacy, notes, remainingQuantity, quantityUnit, ocrRawText, createdAt, updatedAt,
-    tags(), BACKUP_INFORMATION_V1.associateWith { column ->
+    tags(), BACKUP_INFORMATION_CURRENT.associateWith { column ->
         information[MedicineInformationField.entries.first { it.column == column }]
     }, photoHashes, groupKey, groupName
 )
