@@ -16,6 +16,16 @@ class MedicineDeletionTest {
         assertTrue(selectedVisibleMedicines(emptyList(), setOf(1)).isEmpty())
     }
 
+    @Test fun sameBatchWarningRetainsUndoButExpiryAndOtherNoticesCloseIt() {
+        val original = UiNotice("已移出", "batch-a")
+        assertTrue(shouldFinishUndoWindow(original, original)) // natural expiry or collector teardown
+        assertFalse(shouldFinishUndoWindow(original, UiNotice("旧照片清理失败", "batch-a")))
+        assertFalse(shouldFinishUndoWindow(original, original.copy())) // a new emission of the same window
+        assertTrue(shouldFinishUndoWindow(original, UiNotice("已移出", "batch-b")))
+        assertTrue(shouldFinishUndoWindow(original, UiNotice("其他提示")))
+        assertFalse(shouldFinishUndoWindow(UiNotice("无撤销"), original))
+    }
+
     @Test fun deletionRequiresAllConfirmedIdsAndUsesFreshCompleteRecords() {
         val first = record(1, "same-group").copy(notes = "新备注", remainingQuantity = 8)
         val second = record(2, "same-group")

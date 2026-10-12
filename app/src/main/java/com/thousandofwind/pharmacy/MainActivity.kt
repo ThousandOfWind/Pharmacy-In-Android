@@ -34,6 +34,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.thousandofwind.pharmacy.ai.AiScreen
 import com.thousandofwind.pharmacy.ai.AiViewModel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.onEach
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MedicineViewModel> {
@@ -125,7 +126,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         if (state.session.screen != Screen.EDITOR) screenState.removeState(Screen.EDITOR)
     }
     LaunchedEffect(viewModel) {
-        viewModel.events.collectLatest { notice ->
+        var newestNotice: UiNotice? = null
+        viewModel.events.onEach { newestNotice = it }.collectLatest { notice ->
             var undoRequested = false
             try {
                 // A new notice immediately replaces the old snackbar, especially a newer undo batch.
@@ -134,8 +136,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                 undoRequested = notice.undoToken != null && result == SnackbarResult.ActionPerformed
                 if (undoRequested) viewModel.undoRemove(requireNotNull(notice.undoToken))
             } finally {
-                // Cancellation/replacement also closes the old undo window, but never a newer token.
-                if (!undoRequested) notice.undoToken?.let(viewModel::finishRemove)
+                // A same-token cleanup warning replaces text, not the current batch's undo window.
+                if (!undoRequested && shouldFinishUndoWindow(notice, newestNotice)) notice.undoToken?.let(viewModel::finishRemove)
             }
         }
     }

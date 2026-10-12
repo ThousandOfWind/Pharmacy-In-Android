@@ -90,7 +90,7 @@ sdk.dir=C:/Users/zhiruizhu/AppData/Local/Android/Sdk
 
 APK 输出：`app/build/outputs/apk/debug/app-debug.apk`。
 Lint 报告：`app/build/reports/lint-results-debug.html`。
-保留药箱核心、照片保留/清理、OCR归类/日期/框选/标签、AI协议、备份、分组和更新规则UT；新增 2 个移出规则 UT（选择范围、完整确认 ID 校验）。不新增 UI／仪器测试套件。UT不代替设备触控、旋转图像和迁移验收。
+保留药箱核心、照片保留/清理、OCR归类/日期/框选/标签、AI协议、备份、分组和更新规则UT；新增 3 个移出规则 UT（选择范围、完整确认 ID 校验、同批提示替换保留撤销）。不新增 UI／仪器测试套件。UT不代替设备触控、旋转图像和迁移验收。
 
 页面布局、拍照权限、实际药盒识别、旧数据升级及更新下载/系统安装授权需在专用模拟器或设备上按需检查；UT 不代表这些真实设备流程已经验证。
 

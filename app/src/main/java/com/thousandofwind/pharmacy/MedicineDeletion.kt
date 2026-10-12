@@ -11,3 +11,7 @@ fun deletionTargets(records: List<MedicineEntity>, ids: Set<Long>): List<Medicin
     require(targets.size == ids.size) { "部分记录已变化，请重新选择后确认" }
     return targets
 }
+
+/** Expiry/dismissal closes a window; replacing its text with a same-batch warning does not. */
+fun shouldFinishUndoWindow(closing: UiNotice, newest: UiNotice?): Boolean =
+    closing.undoToken != null && (newest === closing || newest?.undoToken != closing.undoToken)

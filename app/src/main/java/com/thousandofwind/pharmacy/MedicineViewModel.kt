@@ -403,9 +403,12 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 removed = batch
                 change { copy(screen = Screen.CABINET, selectedId = 0, groupKey = "", managing = false,
                     deletionIds = emptySet(), highlightId = 0) }
+                // Publish the new undo window before old-file IO. An undo click can queue behind busy.
+                notices.send(UiNotice("已移出 ${deleted.size} 条库存记录", batch.token))
                 done(true)
-                val cleaned = cleanupPhotos(previous?.records.orEmpty().flatMap { it.photos() })
-                notices.send(UiNotice("已移出 ${deleted.size} 条库存记录" + if (cleaned) "" else "；部分旧照片清理失败", batch.token))
+                if (!cleanupPhotos(previous?.records.orEmpty().flatMap { it.photos() })) {
+                    notices.send(UiNotice("已移出 ${deleted.size} 条库存记录；部分旧照片清理失败", batch.token))
+                }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 notices.send(UiNotice("移出失败，未删除任何记录，请重新核对后重试")); done(false)
@@ -414,12 +417,11 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
     }
 
     fun undoRemove(token: String) {
-        val batch = removed?.takeIf { it.token == token } ?: run { report("这次移出已无法撤销"); return }
-        if (busy.value) {
-            viewModelScope.launch { notices.send(UiNotice("正在处理其他操作，本次未撤销，请稍后重试", token)) }; return
-        }
-        busy.value = true
         viewModelScope.launch {
+            // Accept the click immediately; wait for old-file cleanup without losing this batch.
+            busy.first { !it }
+            val batch = removed?.takeIf { it.token == token } ?: run { report("这次移出已无法撤销"); return@launch }
+            busy.value = true
             try {
                 db.withTransaction { dao.restoreRecords(batch.records) }
                 if (removed?.token == token) removed = null
