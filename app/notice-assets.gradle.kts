@@ -15,7 +15,10 @@ listOf("debug", "release").forEach { variant ->
         outputs.dir(output)
         outputs.upToDateWhen { false }
         doLast {
-            val target = output.get().dir("legal").asFile.apply { mkdirs() }
+            val target = output.get().dir("legal").asFile
+            // Remove only this variant's generated assets; removed dependencies must not leave stale notices.
+            check(target.deleteRecursively()) { "Cannot clear generated notice assets" }
+            check(target.mkdirs()) { "Cannot create generated notice assets" }
             val root = rootProject.projectDir
             listOf("LICENSE" to "project-license.txt", "docs/privacy.md" to "privacy.txt").forEach { (source, name) ->
                 File(root, source).copyTo(File(target, name), overwrite = true)
