@@ -2,39 +2,37 @@ package com.thousandofwind.pharmacy
 
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-/** Public GitHub requests only; never sends account credentials or medicine data. */
+/** Public Release assets only; no REST API, account credentials or medicine data. */
 class GitHubUpdates {
-    suspend fun latest(): ReleaseUpdate? {
-        val releaseText = text("https://api.github.com/repos/$UPDATE_REPOSITORY/releases/latest", allowNotFound = true)
-            ?: return null
-        val release = JSONObject(releaseText)
-        require(!release.getBoolean("draft") && !release.getBoolean("prerelease")) { "最新发布不是可用的正式更新" }
-        val tag = release.getString("tag_name")
-        val code = releaseVersionCode(tag) ?: error("最新发布的版本格式不支持")
-        val assets = release.getJSONArray("assets")
-        val byName = (0 until assets.length()).map { assets.getJSONObject(it) }.associateBy { it.getString("name") }
-        val metadata = byName["update.json"] ?: error("最新发布缺少更新信息")
-        val apk = byName["app-debug.apk"] ?: error("最新发布缺少 APK")
-        require(isTrustedReleaseAsset(metadata.getString("browser_download_url"), tag, "update.json") &&
-            isTrustedReleaseAsset(apk.getString("browser_download_url"), tag, "app-debug.apk")) { "更新下载地址不属于本仓库" }
-        val info = JSONObject(text(metadata.getString("browser_download_url")) ?: error("无法读取更新信息"))
-        val sha = info.getString("sha256")
-        val size = apk.getLong("size")
-        require(info.getLong("versionCode") == code && info.getString("versionName") == tag.removePrefix("v") &&
-            info.getLong("size") == size && validUpdateMetadata(tag, code, sha, size)) { "更新信息校验失败" }
-        return ReleaseUpdate(tag, code, release.optString("body").take(3000), sha, size)
+    suspend fun latest(): ReleaseUpdate {
+        // GitHub's latest asset shortcut avoids the shared-IP anonymous REST API rate limit.
+        val response = text(LATEST_UPDATE_METADATA)
+        try {
+            val info = JSONObject(response.body)
+            // Reject fractional/string integers instead of allowing JSONObject's numeric coercion.
+            require(info.get("versionCode") is Int || info.get("versionCode") is Long)
+            require(info.get("size") is Int || info.get("size") is Long)
+            return checkedReleaseMetadata(info.getString("versionName"), info.getLong("versionCode"),
+                info.getString("sha256"), info.getLong("size"),
+                response.releaseTag ?: error("未收到本仓库的版本化更新信息跳转"))
+        } catch (_: JSONException) {
+            throw UpdateRequestFailure("更新信息不是有效的发布元数据。请稍后重试，或查看官方发布页。")
+        }
     }
 
+    private data class UpdateConnection(val connection: HttpURLConnection, val releaseTag: String?)
+    private data class MetadataText(val body: String, val releaseTag: String?)
+
     suspend fun download(update: ReleaseUpdate, destination: File, progress: (Int) -> Unit) {
-        val connection = connect(update.apkUrl) ?: error("APK 不存在")
+        val connection = connect(update.apkUrl).connection
         try {
             val declared = connection.contentLengthLong
             require(declared == -1L || declared == update.size) { "APK 大小与发布信息不一致" }
@@ -63,8 +61,9 @@ class GitHubUpdates {
         }
     }
 
-    private suspend fun text(url: String, allowNotFound: Boolean = false): String? {
-        val connection = connect(url, allowNotFound) ?: return null
+    private suspend fun text(url: String): MetadataText {
+        val response = connect(url)
+        val connection = response.connection
         try {
             val output = ByteArrayOutputStream()
             connection.inputStream.use { input ->
@@ -77,26 +76,33 @@ class GitHubUpdates {
                     output.write(buffer, 0, count)
                 }
             }
-            return output.toString("UTF-8")
+            return MetadataText(output.toString("UTF-8"), response.releaseTag)
         } finally {
             connection.disconnect()
         }
     }
 
-    private suspend fun connect(address: String, allowNotFound: Boolean = false): HttpURLConnection? {
+    private suspend fun connect(address: String): UpdateConnection {
         var url = address
+        var releaseTag: String? = null
         repeat(6) {
             currentCoroutineContext().ensureActive()
             require(isTrustedUpdateConnection(url)) { "更新连接地址不受信任" }
+            releaseMetadataTag(url)?.let { tag ->
+                require(releaseTag == null || releaseTag == tag) { "更新跳转版本不一致" }
+                releaseTag = tag
+            }
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.connectTimeout = 15_000
             connection.readTimeout = 20_000
             connection.instanceFollowRedirects = false
+            connection.useCaches = false
+            connection.setRequestProperty("Cache-Control", "no-cache")
             connection.setRequestProperty("User-Agent", "Pharmacy-Android-Updater")
-            connection.setRequestProperty("Accept", if (URL(url).host == "api.github.com") "application/vnd.github+json" else "application/octet-stream")
+            connection.setRequestProperty("Accept", "application/octet-stream")
             val status = try { connection.responseCode } catch (e: Exception) { connection.disconnect(); throw e }
             when (status) {
-                200 -> return connection
+                200 -> return UpdateConnection(connection, releaseTag)
                 301, 302, 303, 307, 308 -> {
                     val location = connection.getHeaderField("Location")
                     connection.disconnect()
@@ -105,11 +111,10 @@ class GitHubUpdates {
                 }
                 else -> {
                     connection.disconnect()
-                    if (status == 404 && allowNotFound) return null
-                    throw IOException(when (status) {
-                        403, 429 -> "GitHub 暂时限制访问，请稍后重试"
-                        404 -> "更新文件不存在，请稍后重试"
-                        else -> "GitHub 请求失败（HTTP $status）"
+                    throw UpdateRequestFailure(when (status) {
+                        403, 429 -> "GitHub 发布文件暂时拒绝或限制访问（HTTP $status）。请稍后重试，或用浏览器下载。"
+                        404 -> "未找到正式发布的更新文件（HTTP 404）。可能尚未发布或附件缺失，请查看发布页。"
+                        else -> "GitHub 发布文件请求失败（HTTP $status）。可稍后重试，或用浏览器下载。"
                     })
                 }
             }
