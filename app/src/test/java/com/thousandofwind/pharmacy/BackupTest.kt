@@ -16,14 +16,19 @@ class BackupTest {
     @Test fun allFieldsRoundTripWithoutChangingLegacyValuesOrMultilineText() {
         val record = BackupRecord(" 示例药 ", expiry = "旧日期格式", efficacy = " 第一行\n第二行 ", notes = "原备注", quantity = 0,
             unit = "旧单位", ocrText = "包装识别原文\n第二行", createdAt = 123, updatedAt = 456,
-            tags = listOf("外用", "自定义"), information = BACKUP_INFORMATION_V1.associateWith { "$it 原文\n保留" }, photos = listOf("a".repeat(64)))
+            tags = listOf("外用", "自定义"), information = BACKUP_INFORMATION_CURRENT.associateWith { if (it == "production_date") "2026-03-03" else "$it 原文\n保留" }, photos = listOf("a".repeat(64)))
         val document = BackupDocument(789, listOf(record))
         assertEquals(document, decodeBackup(encodeBackup(document)))
-        val legacy = encodeBackup(BackupDocument(789, listOf(record.copy(photos = emptyList()))))
-        val legacyVersion = legacy.copyOf(legacy.size - 8) // v1 has no two empty group strings.
+        val oldRecord = record.copy(photos = emptyList(), information = record.information + ("production_date" to ""))
+        val legacy = encodeBackup(BackupDocument(789, listOf(oldRecord)))
         val offset = 4 + "PharmacyCabinetBackup".toByteArray().size
-        java.nio.ByteBuffer.wrap(legacyVersion).putInt(offset, 1)
-        assertEquals(BackupDocument(789, listOf(record.copy(photos = emptyList()))), decodeBackup(legacyVersion))
+        val v2 = legacy.copyOf(legacy.size - 4) // v2 lacks the empty production-date string.
+        java.nio.ByteBuffer.wrap(v2).putInt(offset, 2)
+        val v1 = legacy.copyOf(legacy.size - 12) // v1 also lacks two empty group strings.
+        java.nio.ByteBuffer.wrap(v1).putInt(offset, 1)
+        listOf(v1, v2).forEach { assertEquals(BackupDocument(789, listOf(oldRecord)), decodeBackup(it)) }
+        assertEquals(backupFingerprint(oldRecord), backupFingerprint(oldRecord.copy(information = oldRecord.information - "production_date")))
+        assertNotEquals(backupFingerprint(record), backupFingerprint(oldRecord.copy(photos = record.photos)))
         assertNotEquals(backupFingerprint(record), backupFingerprint(record.copy(quantity = null)))
         assertNotEquals(backupFingerprint(record), backupFingerprint(record.copy(updatedAt = 457)))
         assertEquals(backupFingerprint(record), backupFingerprint(record.copy(information = record.information.toList().reversed().toMap())))

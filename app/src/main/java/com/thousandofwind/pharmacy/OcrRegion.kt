@@ -32,6 +32,7 @@ data class OcrRegion(val left: Float, val top: Float, val right: Float, val bott
     }
 }
 
+const val OCR_TARGET_ALL = "all"
 const val OCR_TARGET_NAME = "name"
 const val OCR_TARGET_EXPIRY = "expiry"
 const val OCR_TARGET_EFFICACY = "efficacy"
@@ -50,8 +51,7 @@ fun regionCandidates(text: String, target: String): OcrCandidates {
         }
         OCR_TARGET_EXPIRY -> {
             // Only an unambiguous literal date, or explicitly labelled expiry. Never duration/MFG.
-            val isolatedDate = Regex("20\\d{2}[年./-]\\d{1,2}(?:[月./-]\\d{1,2})?月?日?").matches(raw)
-            val literal = if (isolatedDate) extractCandidates("有效期至：$raw").expiry else ""
+            val literal = parseOcrDate(raw).orEmpty()
             OcrCandidates(expiry = parsed.expiry.ifBlank { literal }, warnings = (warnings + parsed.warnings).distinct())
         }
         OCR_TARGET_EFFICACY -> {
@@ -62,7 +62,8 @@ fun regionCandidates(text: String, target: String): OcrCandidates {
         else -> {
             val field = MedicineInformationField.entries.firstOrNull { it.column == target && it != MedicineInformationField.STORAGE_LOCATION }
                 ?: return OcrCandidates(warnings = listOf("无法归类此框选，请查看原文"))
-            val value = parsed.information[field].ifBlank { raw }
+            val value = if (field == MedicineInformationField.PRODUCTION_DATE) parsed.information[field].ifBlank { parseOcrDate(raw).orEmpty() }
+                else parsed.information[field].ifBlank { raw }
             if (medicineInformationFieldError(field, value) != null) OcrCandidates(warnings = warnings + "${field.label}内容需手动核对")
             else OcrCandidates(information = MedicineInformation().withValue(field, value), warnings = warnings)
         }

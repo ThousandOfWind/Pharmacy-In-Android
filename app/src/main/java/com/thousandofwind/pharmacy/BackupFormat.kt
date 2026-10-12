@@ -14,7 +14,7 @@ const val MAX_BACKUP_MANIFEST_BYTES = 16 * 1024 * 1024
 const val MAX_BACKUP_RECORDS = 2000
 const val MAX_BACKUP_PHOTOS = MAX_BACKUP_RECORDS * 12
 private const val MAX_TEXT_BYTES = 1024 * 1024
-private const val BACKUP_VERSION = 2
+private const val BACKUP_VERSION = 3
 private const val BACKUP_MAGIC = "PharmacyCabinetBackup"
 
 // Fixed v1 wire schema, independent of future additions to the database field enum.
@@ -24,11 +24,13 @@ val BACKUP_INFORMATION_V1 = listOf(
     "precautions", "interactions", "storage_conditions", "leaflet_source"
 )
 
+val BACKUP_INFORMATION_CURRENT = BACKUP_INFORMATION_V1 + "production_date"
+
 data class BackupRecord(
     val name: String, val expiry: String = "", val efficacy: String = "", val notes: String = "",
     val quantity: Int? = null, val unit: String = "", val ocrText: String = "",
     val createdAt: Long = 0, val updatedAt: Long = 0,
-    val tags: List<String> = emptyList(), val information: Map<String, String> = BACKUP_INFORMATION_V1.associateWith { "" },
+    val tags: List<String> = emptyList(), val information: Map<String, String> = BACKUP_INFORMATION_CURRENT.associateWith { "" },
     val photos: List<String> = emptyList(), val groupKey: String = "", val groupName: String = ""
 )
 
@@ -64,7 +66,7 @@ private fun text(input: DataInputStream): String {
 
 private fun writeRecord(out: DataOutputStream, r: BackupRecord) {
     require(r.name.isNotBlank() && (r.quantity == null || r.quantity >= 0)) { "药品记录无效" }
-    require(r.tags.size <= 100 && r.photos.size <= 12 && r.information.keys == BACKUP_INFORMATION_V1.toSet()) { "记录字段不受支持" }
+    require(r.tags.size <= 100 && r.photos.size <= 12 && (r.information.keys == BACKUP_INFORMATION_V1.toSet() || r.information.keys == BACKUP_INFORMATION_CURRENT.toSet())) { "记录字段不受支持" }
     listOf(r.name, r.expiry, r.efficacy, r.notes, r.unit, r.ocrText).forEach { text(out, it) }
     out.writeBoolean(r.quantity != null); r.quantity?.let(out::writeInt)
     out.writeLong(r.createdAt); out.writeLong(r.updatedAt)
@@ -73,6 +75,7 @@ private fun writeRecord(out: DataOutputStream, r: BackupRecord) {
     out.writeInt(r.photos.size); r.photos.forEach { photoEntry(it); text(out, it) }
     require((r.groupKey.isEmpty() && r.groupName.isEmpty()) || (validGroupKey(r.groupKey) && groupNameError(r.groupName) == null)) { "备份分组无效" }
     text(out, r.groupKey); text(out, r.groupName)
+    text(out, r.information["production_date"].orEmpty())
 }
 
 fun encodeBackup(document: BackupDocument): ByteArray {
@@ -106,11 +109,12 @@ fun decodeBackup(bytes: ByteArray): BackupDocument {
             val tagsCount = input.readInt(); require(tagsCount in 0..100) { "备份标签数量无效" }
             val tags = List(tagsCount) { text(input) }
             require(tags == normalizeMedicineTags(tags)) { "备份标签不是规范化内容" }
-            val information = BACKUP_INFORMATION_V1.associateWith { text(input) }
+            val information = BACKUP_INFORMATION_V1.associateWith { text(input) }.toMutableMap()
             val photoCount = input.readInt(); require(photoCount in 0..12) { "备份照片数量无效" }
             val photos = List(photoCount) { text(input).also(::photoEntry) }
             val groupKey = if (version >= 2) text(input) else ""
             val groupName = if (version >= 2) text(input) else ""
+            information["production_date"] = if (version >= 3) text(input) else ""
             require((groupKey.isEmpty() && groupName.isEmpty()) || (validGroupKey(groupKey) && groupNameError(groupName) == null)) { "备份分组无效" }
             require(name.isNotBlank()) { "备份药名为空" }
             // Preserve legacy unknown units/dates and multiline text rather than rewriting old records.

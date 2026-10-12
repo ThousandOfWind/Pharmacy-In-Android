@@ -71,7 +71,7 @@
 
 ## 旧版本兼容
 
-Room 版本 2 → 3 仅增加数量单位、多图及更新时间字段；3 → 4 仅增加 `tags_json TEXT NOT NULL DEFAULT '[]'`，旧记录默认为无标签。4 → 5 增加 15 个 `info_* TEXT NOT NULL DEFAULT ''` 显式字段，使用 `@Embedded` 资料对象组织；历史迁移中的字段列表固定，不依赖后续版本可扩展的枚举。迁移链保留旧字段和创建时间。移除 destructive fallback，缺少迁移时显式失败而不是清空记录。
+Room 版本 2 → 3 仅增加数量单位、多图及更新时间字段；3 → 4 仅增加 `tags_json TEXT NOT NULL DEFAULT '[]'`，旧记录默认为无标签。4 → 5 增加 15 个 `info_* TEXT NOT NULL DEFAULT ''` 显式字段，使用 `@Embedded` 资料对象组织；历史迁移中的字段列表固定，不依赖后续版本可扩展的枚举。6 → 7 增加 `info_production_date TEXT NOT NULL DEFAULT ''`，独立于有效期，旧记录留空不自动推断。迁移链保留旧字段和创建时间。移除 destructive fallback，缺少迁移时显式失败而不是清空记录。
 
 - 原数字余量保留，单位为空时显示“单位待补充”。
 - 无法解析的旧有效期保留原文并提示核对，不参与有效/过期判断。

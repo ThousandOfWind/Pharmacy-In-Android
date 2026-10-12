@@ -41,7 +41,7 @@ fun loadOcrBitmap(photo: String): Bitmap {
     BitmapFactory.decodeFile(file.path, bounds)
     require(bounds.outWidth > 0 && bounds.outHeight > 0) { "无法读取照片" }
     var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2400) sample *= 2
+    while (maxOf(bounds.outWidth, bounds.outHeight).toDouble() / sample > 2400) sample *= 2
     val bitmap = requireNotNull(BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = sample }))
     val orientation = runCatching { ExifInterface(file.path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL) }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
     val matrix = Matrix().apply {
@@ -55,7 +55,10 @@ fun loadOcrBitmap(photo: String): Bitmap {
             ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
         }
     }
-    return if (matrix.isIdentity) bitmap else Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    if (matrix.isIdentity) return bitmap
+    return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true).also {
+        if (it !== bitmap) bitmap.recycle()
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

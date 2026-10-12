@@ -206,7 +206,8 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                             Text(if (!page.loaded) "正在读取药品组…" else page.databaseError ?: "这个药品组已不存在，库存记录仍在药箱中。")
                             TextButton(onClick = viewModel::back) { Text("回到药箱") }
                         }
-                        Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto, viewModel::scanRegion)
+                        Screen.EDITOR -> EditorScreen(page, viewModel::updateDraft, ::takePhoto, ::pickPhoto, viewModel::scanRegion,
+                            viewModel::rotatePhoto, viewModel::deletePhoto, viewModel::rescanPhoto)
                         Screen.DETAIL -> page.selected?.let { item ->
                             DetailScreen(item, page.busy, { viewModel.edit(item) },
                                 { quantity, unit, done -> viewModel.updateStock(item, quantity, unit, done) }, { viewModel.remove(item) })
