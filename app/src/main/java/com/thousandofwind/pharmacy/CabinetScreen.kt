@@ -32,13 +32,12 @@ fun CabinetScreen(
     add: () -> Unit, open: (MedicineEntity) -> Unit, openGroup: (CabinetGroup) -> Unit,
     importBackup: () -> Unit, canImport: Boolean,
     manage: () -> Unit, finishManaging: () -> Unit, toggleDeletion: (Long) -> Unit,
-    selectVisible: () -> Unit, remove: (Set<Long>, (Boolean) -> Unit) -> Unit
+    selectVisible: () -> Unit
 ) {
     val rows = state.visible
     val groups = cabinetGroups(rows)
     val listState = rememberLazyListState()
     var showFilters by rememberSaveable { mutableStateOf(false) }
-    var pendingDeletion by rememberSaveable { mutableStateOf(longArrayOf()) }
     val managing = state.session.managing
     val selected = state.selectedForDeletion
     val canManage = state.loaded && state.databaseError == null && !state.busy && !state.scanning
@@ -152,17 +151,7 @@ fun CabinetScreen(
                         }
                     }
                 }
-                if (managing) TextButton(
-                    onClick = { pendingDeletion = selected.map { it.id }.toLongArray() },
-                    enabled = canManage && selected.isNotEmpty(), modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp).paperBorder()
-                ) { Text(if (state.busy) "正在移出…" else "移出药箱（${selected.size} 条）", color = MaterialTheme.colorScheme.error) }
             }
-        }
-    }
-    if (pendingDeletion.isNotEmpty()) {
-        val ids = pendingDeletion.toSet()
-        DeleteMedicineDialog(state.medicines.filter { it.id in ids }, state.busy, { pendingDeletion = longArrayOf() }) {
-            remove(ids) { pendingDeletion = longArrayOf() }
         }
     }
     if (showFilters) ModalBottomSheet(onDismissRequest = { showFilters = false }) {

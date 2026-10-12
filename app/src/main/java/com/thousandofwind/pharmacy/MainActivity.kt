@@ -72,6 +72,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
     var showMore by rememberSaveable { mutableStateOf(false) }
     var showBackup by rememberSaveable { mutableStateOf(false) }
     var showGroupLink by rememberSaveable { mutableStateOf(false) }
+    var pendingDeletion by rememberSaveable { mutableStateOf(longArrayOf()) }
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) backupViewModel.export(uri)
     }
@@ -175,6 +176,17 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
         },
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
+            if (state.session.screen == Screen.CABINET && state.session.managing && state.loaded && state.databaseError == null) {
+                Surface {
+                    TextButton(
+                        onClick = { pendingDeletion = state.selectedForDeletion.map { it.id }.toLongArray() },
+                        enabled = !state.busy && !state.scanning && state.selectedForDeletion.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp).paperBorder()
+                    ) {
+                        Text(if (state.busy) "正在移出…" else "移出药箱（${state.selectedForDeletion.size} 条）", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             if (state.session.screen == Screen.CABINET && !state.session.managing && state.loaded && state.databaseError == null && state.medicines.isNotEmpty()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 10.dp), horizontalArrangement = Arrangement.End) {
                     PenButton("添加药品", { showAdd = true }, icon = InkSymbol.PLUS)
@@ -210,7 +222,7 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                         Screen.CABINET -> CabinetScreen(page, viewModel::search, viewModel::filter, viewModel::filterTag, { showAdd = true }, viewModel::open, viewModel::openGroup,
                             importBackup = { showBackup = true }, canImport = !page.busy && !page.scanning,
                             manage = viewModel::manage, finishManaging = viewModel::finishManaging,
-                            toggleDeletion = viewModel::toggleDeletion, selectVisible = viewModel::selectVisibleForDeletion, remove = viewModel::remove)
+                            toggleDeletion = viewModel::toggleDeletion, selectVisible = viewModel::selectVisibleForDeletion)
                         Screen.GROUP -> page.selectedGroup?.let { group ->
                             GroupScreen(group, page.visible, viewModel::openStock, { viewModel.addToGroup(group) })
                         } ?: Column(Modifier.padding(24.dp)) {
@@ -230,6 +242,12 @@ fun MedicineApp(viewModel: MedicineViewModel, updateViewModel: AppUpdateViewMode
                     }
                 }
             }
+        }
+    }
+    if (pendingDeletion.isNotEmpty()) {
+        val ids = pendingDeletion.toSet()
+        DeleteMedicineDialog(state.medicines.filter { it.id in ids }, state.busy, { pendingDeletion = longArrayOf() }) {
+            viewModel.remove(ids) { pendingDeletion = longArrayOf() }
         }
     }
     if (showAi) AiScreen(aiViewModel, dismiss = { showAi = false }, openMedicine = { id ->
