@@ -33,7 +33,7 @@ export function parseRunArgs(args) {
 }
 
 export function assertResetConsent(options) {
-  if (options.allowTestDataReset !== true) throw new Error('Maestro flows may clear the test App database. Stop and obtain explicit user approval for the disposable AVD, then pass --allow-test-data-reset for this run.');
+  if (options.allowTestDataReset !== true) throw new Error('Maestro flows may clear test App data. After verifying task isolation under project standing authorization (no per-run approval), pass --allow-test-data-reset. Outside that scope, stop and obtain separate authorization.');
 }
 
 export function establishLaunchOwnership({ captureIdentity, persistIdentity, rollbackLaunch }) {
@@ -121,7 +121,7 @@ function checkTools(c) {
   const version = c.maestro(['--version'], { quiet: true });
   if (!version.split(/\r?\n/).some(s => s.trim() === VERSION)) throw new Error(`Expected Maestro ${VERSION}; stop and review installation.`);
   const avds = execute(c.emulator, ['-list-avds'], c.env, { quiet: true }).split(/\r?\n/).map(s => s.trim());
-  if (!avds.includes(c.config.avdName)) throw new Error('Approved dedicated AVD does not exist; ask the user to provision it.');
+  if (!avds.includes(c.config.avdName)) throw new Error('Dedicated AVD does not exist. See AGENTS.md and local-testing.md: create a fresh task-isolated AVD under standing authorization; otherwise obtain separate authorization.');
 }
 export function reservationPaths(root, config) {
   return [path.join(root, `avd-${config.avdName}.json`), path.join(root, `port-${config.port}.json`)];
@@ -231,7 +231,8 @@ async function main() {
   if (!['doctor', 'start', 'run', 'inspect', 'screenshot', 'stop'].includes(action)) throw new Error('Usage: e2e.mjs doctor|start|run --allow-test-data-reset [--flow <path>]|inspect|screenshot|stop');
   const runOptions = action === 'run' ? parseRunArgs(args) : {};
   if (action !== 'run' && args.length) throw new Error('Unexpected arguments.');
-  // All flows require opt-in: checking only the root YAML would miss destructive child flows.
+  // All flows require an explicit execution flag, even under standing authorization.
+  // This flag is not proof of human approval or data provenance; see AGENTS.md/SKILL.md.
   if (action === 'run') assertResetConsent(runOptions);
   const c = loadContext();
   const ownership = path.join(c.state, 'emulator-started.json');
@@ -350,7 +351,7 @@ async function main() {
       if (!installed) throw new Error('Installed APK not found.');
       const hash = c.adbCall(['shell', 'sha256sum', installed], { quiet: true }).trim().split(/\s+/)[0];
       if (hash !== result.apkSha256) throw new Error('Installed APK hash differs from the current build.');
-      // Recheck both the resolved device identity and this invocation's explicit consent just before execution.
+      // Recheck device identity and this invocation's execution flag; neither establishes data provenance.
       reservedOwner(c); deviceReady(c); assertResetConsent(runOptions); result.allowTestDataReset = true; result.status = 'FAILED';
       c.maestro(['--udid', c.serial, '--no-ansi', 'test', '--env', 'PHARMACY_ALLOW_TEST_DATA_RESET=true', '--format', 'JUNIT', '--output', path.join(dir, 'report.xml'),
         '--test-output-dir', path.join(dir, 'maestro'), flow], { timeout: 300000, log: path.join(dir, 'maestro.log') });

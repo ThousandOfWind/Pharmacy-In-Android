@@ -95,17 +95,17 @@ Lint 报告：`app/build/reports/lint-results-debug.html`。
 
 项目自带 [pharmacy-local-e2e](.pi/skills/pharmacy-local-e2e/SKILL.md)，默认使用固定版 **Maestro 2.11.0 CLI**，可选使用官方 MCP。Pi 在项目受信任后发现它；运行 `/reload` 后可用 `/skill:pharmacy-local-e2e` 显式调用。其他支持 Agent Skills 的工具也可加载该目录。
 
-先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
+仅修改文档、注释或提示文案而未改变执行逻辑时，不跑测试或构建；只检查内容、diff、必要语法和独立 review。需要设备验收时，先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
 
 ```powershell
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs doctor
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs start
-# 用户明确确认该 AVD 可丢弃、允许本次清空测试 App 数据后：
+# 按 AGENTS.md 常设授权核实任务隔离边界后直接执行，无需逐次 approve：
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs run --allow-test-data-reset
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs stop
 ```
 
-该入口只操作明确配置的 `Pharmacy_E2E_*` 专用 AVD，构建并校验当前 APK 后安装，执行少量手工业务验收；默认流程会清空该测试 App 的数据。AVD 名称不能证明数据可丢弃，每次 `run` 必须另有用户授权并显式传入 `--allow-test-data-reset`，否则在设备操作前拒绝执行。结果、APK hash、JUnit 和失败诊断写入当前 worktree 的 `build/local-e2e/`，不上传云端、不接入 GitHub Actions、不新增 Gradle UI／仪器测试框架。不要用于日常手机；默认通过不代表实际拍照或真实药盒 OCR 已验证。
+该入口只操作明确配置的 `Pharmacy_E2E_*` 专用 AVD，构建并校验当前 APK 后安装，执行少量手工业务验收；默认流程会清空该测试 App 的数据。本仓库 [AGENTS.md](AGENTS.md) 已授权独立本地测试：为本任务新建、不共享、不登录个人账号、不导入用户数据、仅有合成测试数据的 AVD，可直接创建并执行测试，不再逐次等待 approve；同一任务复用仍需核实创建来源/身份记录。AVD 名称和本机配置不是可丢弃证明。agent 在符合边界时主动传入 `--allow-test-data-reset`；标记和任务预留/启动身份检查仍保留，不将它当作人工审批证明。真机、共享/来源不明设备或真实用户数据仍需另行授权；不跳过 PR review、分支保护或实验限制。结果、APK hash、JUnit 和失败诊断写入当前 worktree 的 `build/local-e2e/`，不上传云端、不接入 GitHub Actions、不新增 Gradle UI／仪器测试框架。不要用于日常手机；默认通过不代表实际拍照或真实药盒 OCR 已验证。
 
 手机需 Android 8.0（API 26）或更高版本。连接手机并在手机上授权 USB 调试后，可手动安装：
 

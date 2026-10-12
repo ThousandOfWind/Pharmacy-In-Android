@@ -16,15 +16,15 @@ Maestro 独立安装，不添加 Android Gradle 依赖。固定 2.11.0，升级�
 }
 ```
 
-把 `<Task>` 替换为本任务名称，例如 `Backup`，不能原样使用占位符。每个并行任务使用不同的 AVD 和端口对，5560 只是示例。只使用用户已批准的专用 AVD。脚本不会创建、删除或 wipe AVD；不会自动下载工具或改 PATH／安全策略。Node 从现有环境运行。`javaHome` 和 `androidSdk` 省略时使用现有 `JAVA_HOME`、`ANDROID_HOME`／`ANDROID_SDK_ROOT`。Maestro 用 Java 调用官方 CLI，避免 Windows `.bat` 和多层 shell 引号问题。
+把 `<Task>` 替换为本任务名称，例如 `Backup`，不能原样使用占位符。每个并行任务使用不同的 AVD 和端口对，5560 只是示例。只使用符合项目常设授权或另行明确批准的专用 AVD。脚本不会创建、删除或 wipe AVD；不会自动下载工具或改 PATH／安全策略。Node 从现有环境运行。`javaHome` 和 `androidSdk` 省略时使用现有 `JAVA_HOME`、`ANDROID_HOME`／`ANDROID_SDK_ROOT`。Maestro 用 Java 调用官方 CLI，避免 Windows `.bat` 和多层 shell 引号问题。
 
 每个新 worktree 需要自己的本机配置。不要把绝对路径和日志提交到 Git。许可信息：https://github.com/mobile-dev-inc/Maestro 。官方文档：https://docs.maestro.dev/get-started/maestro-mcp 和 https://docs.maestro.dev/maestro-cli/how-to-install-maestro-cli 。
 
-## 获授权后创建独立 AVD
+## 常设授权下直接创建独立 AVD
 
 先查询 `emulator -list-avds`、现有进程/设备，以及候选偶数端口和下一奇数端口在 IPv4/IPv6 上是否空闲。不读取或复制已有个人 AVD 数据；不终止占用者、不复用实验任务设备。
 
-用户明确允许新 AVD 后，用已安装的 SDK 官方 `avdmanager` 创建，而不是克隆旧模拟器：
+本仓库 [AGENTS.md](../../../../AGENTS.md) 已给予独立本地测试常设授权：为当前任务新建、不共享、不登录个人账号、不导入用户数据的 AVD，可直接用已安装 SDK 官方 `avdmanager` 创建，无需逐次 approve；不是克隆旧模拟器，也不把历史同名设备视为已授权：
 
 ```powershell
 # Android SDK 已安装此 system image、设备定义和 JDK 时才执行：
@@ -32,17 +32,20 @@ avdmanager.bat create avd --name Pharmacy_E2E_Backup_API34 --package "system-ima
 ```
 
 - 不传 `--force`，同名已存在就停止核对；缺少 system image、SDK 许可或工具时报告阻塞，不自行下载/接受许可。
-- 创建仅是设备准备，不自动运行 App 或清数据；还要明确确认该 AVD 的本 App 测试数据可丢弃、允许本次清空。
+- 创建后在任务 worktree 的 Git 忽略 `build/local-e2e/` 记录来源（官方新建、未克隆）、创建时间、所属任务/worktree、AVD 名称/端口和仅合成测试数据。该同一任务的后续复用仍须核实来源/身份记录及数据性质；仅有名称/配置/预留不证明可丢弃。
+- 符合常设授权时，创建、测试 App 安装/操作/数据清空及本任务设备关闭可由 agent 直接执行；不再逐次询问用户。来源不明、共享设备、真机或用户数据不在该授权内，需停止并另行授权或准备全新隔离设备。
 - 在任务 worktree 的 Git 忽略配置写入新 AVD 和空闲端口，然后 `doctor` → `start`。配置变更不代表可以删除旧模拟器。
 
 ## 验收入口
+
+本入口用于需要设备验证的开发/修复/实验或明确验收请求。仅改文档、注释、提示文案而未改变执行逻辑时，只做内容/diff/必要语法和独立 review，不运行 UT、Lint、构建或以下设备验收流程。
 
 从目标项目根目录运行：
 
 ```powershell
 node <skill-absolute-path>/scripts/e2e.mjs doctor
 node <skill-absolute-path>/scripts/e2e.mjs start
-# 仅在用户已明确确认该 AVD 可丢弃、允许本次清空测试 App 数据后：
+# 核实当前任务隔离边界后由 agent 直接执行，无需逐次人工 approve：
 node <skill-absolute-path>/scripts/e2e.mjs run --allow-test-data-reset
 node <skill-absolute-path>/scripts/e2e.mjs inspect
 node <skill-absolute-path>/scripts/e2e.mjs screenshot
@@ -51,7 +54,7 @@ node <skill-absolute-path>/scripts/e2e.mjs stop
 
 默认 smoke 覆盖：空名称 → 中文录入 → 数量需单位 → 保存后库存卡片 → 搜索 → 详情 → 更新余量 → 进程重启持久化。它使用前缀 `E2E-` 的合成数据，不触发相机或进入私人应用。
 
-**单独确认破坏性操作**：AVD 名称或前缀不能证明数据可丢弃。每次运行都需要用户明确允许本次清空该 AVD 的测试 App 数据，再传 `--allow-test-data-reset`；无参数时在构建、安装或设备操作之前拒绝执行。即使使用自定义流程也需要确认，不能只检查根 YAML 而漏掉子流程。流程执行前重新检查 AVD 身份及本次 opt-in，并在 `result.json` 中记录。smoke YAML 也在任何 `launchApp/clearState` 前检查 `PHARMACY_ALLOW_TEST_DATA_RESET`；runner 仅在 opt-in 后传入该变量。直接调用 YAML 而未显式确认会失败。skill 不可把参数或变量当作无条件默认值。
+**常设授权与执行标记分开**：AVD 名称或前缀不能证明数据可丢弃。符合本仓库任务隔离边界时，agent 每次主动传入 `--allow-test-data-reset`，无需等待用户再次 approve；它明确标记允许清空测试 App 数据，不是逐次人工授权。缺标记时 runner 仍在构建/安装/设备操作之前拒绝执行，自定义流程也不能省略标记。执行前仍核对 AVD/任务预留/启动身份和本次标记，`result.json` 记录执行标记（不声称证明人工审批或数据来源）。smoke YAML 仍在 `launchApp/clearState` 前检查 `PHARMACY_ALLOW_TEST_DATA_RESET`，只由 runner 传入，不直接设置变量绕过入口。越界或无法证明来源/身份时停止处理，不把标记当成授权依据。
 
 脚本为每个当前项目保留独立状态目录；同时使用一个宿主机临时目录中的设备锁，避免不同 worktree 的本 runner 同时操作同一串口。发现已有锁时停止，不自动删“过期”锁；确认其他进程结束后再人工清理。此外，`start` 在宿主机临时目录 `pharmacy-local-e2e-reservations` 中分别预留 AVD 名称与端口，直到已验证的 `stop`；本地 `build/local-e2e/state/device-reservation.json` 保存任务身份。不同 AVD/端口可并行，同 AVD 换端口或同端口换 AVD 都拒绝。`run/inspect/screenshot` 必须有当前 worktree 的预留。
 
