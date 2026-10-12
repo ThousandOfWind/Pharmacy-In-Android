@@ -1,8 +1,8 @@
 # Pharmacy-In-Android
 
-**仅限非商业使用，禁止商用。** 本项目采用自定义的 [Pharmacy-In-Android 非商业使用许可证 1.0](LICENSE)，不提供商业使用例外或双重许可方案；不是 MIT／Apache 或 OSI 批准的开源许可。
+**源码可见；接收者仅获非商业使用权，禁止商用。** 本项目采用自定义的 [Pharmacy-In-Android 非商业使用许可证 1.0](LICENSE)，不向接收者提供商业使用例外或双重许可方案；不是 MIT／Apache 或 OSI 批准的开源许可。对外授权不等于原著作权人放弃其依法享有的原创内容权利，也不自动赋予其他主体权利。
 
-一个药箱数据保存在本地、日常功能可离线使用的安卓小程序；仅手动检查/下载 GitHub 更新，或用户配置并主动使用 Azure AI 助手时联网。交互围绕「看药箱 → 拍照核对 → 入库 → 更新余量」组织：
+一个药箱数据主要保存在本地、日常管理可离线使用的安卓小程序。应用主动检查/下载 GitHub 更新及使用 Azure AI 时联网；ML Kit OCR 在设备上处理图片与结果，但 SDK 可能联网并向 Google 发送性能/使用指标。系统备份及用户选择的云端文件提供方也可能处理数据，详见[隐私说明](docs/privacy.md)。交互围绕「看药箱 → 拍照核对 → 入库 → 更新余量」组织：
 
 - **手绘药箱首页**：手绘字标、药品清单、搜索和必要的过期/临期提醒；有效期与标签筛选按需展开（可叠加），不堆积在首屏。
 - **多标签整理**：常用标签快捷多选、自定义标签和已有标签复用；首页卡片显示前 3 个标签及剩余数量，详情直接展示全部标签，首页按需筛选，搜索包含标签。
@@ -24,6 +24,8 @@
 - **关于与更新**：首页“更多 → 关于”查看当前版本、项目介绍和项目主页；点击“检查更新”直接读取公开 Release 的 `update.json`（不调用 GitHub API），手动下载并校验后交给 Android 确认安装，不上传药箱数据或保存 GitHub 凭据。
 
 药品组及迁移见 [docs/medicine-groups.md](docs/medicine-groups.md)；备份格式、安全边界与使用步骤见 [docs/backup-restore.md](docs/backup-restore.md)。交互设计和数据规则见 [docs/interaction-flow.md](docs/interaction-flow.md)；OCR 样本结果、框选流程与未验证项见 [docs/photo-ocr.md](docs/photo-ocr.md)；手绘样式、当前信息层级、字体许可和验证边界见 [docs/paper-design.md](docs/paper-design.md)。
+
+“更多 → 关于”可离线阅读项目许可、第三方通知和隐私说明。许可维护与分发检查见 [docs/licensing.md](docs/licensing.md)，第三方概览见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 Azure 连接方式、数据发送范围、安全边界和未验证项见 [docs/azure-ai.md](docs/azure-ai.md)。API Key 只在应用内输入，不发送到聊天或 Git。助手不使用 ChatGPT/Copilot 订阅，暂无 Entra 登录。
 
@@ -96,17 +98,17 @@ Lint 报告：`app/build/reports/lint-results-debug.html`。
 
 项目自带 [pharmacy-local-e2e](.pi/skills/pharmacy-local-e2e/SKILL.md)，默认使用固定版 **Maestro 2.11.0 CLI**，可选使用官方 MCP。Pi 在项目受信任后发现它；运行 `/reload` 后可用 `/skill:pharmacy-local-e2e` 显式调用。其他支持 Agent Skills 的工具也可加载该目录。
 
-先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
+仅修改文档、注释或提示文案而未改变执行逻辑时，不跑测试或构建；只检查内容、diff、必要语法和独立 review。需要设备验收时，先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
 
 ```powershell
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs doctor
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs start
-# 用户明确确认该 AVD 可丢弃、允许本次清空测试 App 数据后：
+# 按 AGENTS.md 常设授权核实任务隔离边界后直接执行，无需逐次 approve：
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs run --allow-test-data-reset
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs stop
 ```
 
-该入口只操作明确配置的 `Pharmacy_E2E_*` 专用 AVD，构建并校验当前 APK 后安装，执行少量手工业务验收；默认流程会清空该测试 App 的数据。AVD 名称不能证明数据可丢弃，每次 `run` 必须另有用户授权并显式传入 `--allow-test-data-reset`，否则在设备操作前拒绝执行。结果、APK hash、JUnit 和失败诊断写入当前 worktree 的 `build/local-e2e/`，不上传云端、不接入 GitHub Actions、不新增 Gradle UI／仪器测试框架。不要用于日常手机；默认通过不代表实际拍照或真实药盒 OCR 已验证。
+该入口只操作明确配置的 `Pharmacy_E2E_*` 专用 AVD，构建并校验当前 APK 后安装，执行少量手工业务验收；默认流程会清空该测试 App 的数据。本仓库 [AGENTS.md](AGENTS.md) 已授权独立本地测试：为本任务新建、不共享、不登录个人账号、不导入用户数据、仅有合成测试数据的 AVD，可直接创建并执行测试，不再逐次等待 approve；同一任务复用仍需核实创建来源/身份记录。AVD 名称和本机配置不是可丢弃证明。agent 在符合边界时主动传入 `--allow-test-data-reset`；标记和任务预留/启动身份检查仍保留，不将它当作人工审批证明。真机、共享/来源不明设备或真实用户数据仍需另行授权；不跳过 PR review、分支保护或实验限制。结果、APK hash、JUnit 和失败诊断写入当前 worktree 的 `build/local-e2e/`，不上传云端、不接入 GitHub Actions、不新增 Gradle UI／仪器测试框架。不要用于日常手机；默认通过不代表实际拍照或真实药盒 OCR 已验证。
 
 手机需 Android 8.0（API 26）或更高版本。连接手机并在手机上授权 USB 调试后，可手动安装：
 
@@ -159,11 +161,11 @@ adb install -r app-debug.apk
 
 ## 许可证与使用边界
 
-本项目原创内容允许非商业使用、研究、修改及免费分发，须保留许可证和版权通知。禁止收费分发、广告或订阅变现、商业产品／服务集成、商业经营中的内部使用，以及面向预期商业应用的开发和测试。组织身份（包括公益或教育机构）不自动豁免商业用途；具体权限以 [LICENSE](LICENSE) 全文为准。
+依本许可取得权限的接收者，可非商业使用、研究、修改及免费分发项目原创内容，须保留许可证和版权通知；不得收费分发、广告或订阅变现、集成商业产品／服务、用于商业经营内部支持或预期商业应用的开发和测试。组织身份不自动豁免用途限制。原著作权人保留其依法享有的原创内容权利；这不向其他人新增商用权限，也不能凭作者自称或关联关系确定权属，具体以 [LICENSE](LICENSE) 全文为准。
 
 这是**源码可见、非商业授权**，不应对外宣称为 MIT／Apache 或标准开源。第三方代码和依赖仍遵守各自许可证，例如 Gradle Wrapper 的 Apache-2.0，以及 [字体通知](app/src/main/assets/font-licenses/) 中的 SIL Open Font License 1.1；项目不能用自己的非商业条款重新限制第三方独立授予的权利。许可证不授予用户药箱数据、照片、账号凭据或第三方内容的权利。
 
-提交贡献须确保有权按项目许可证提供原创改动，保留所有第三方许可。许可证边界不等于技术防复制措施或法律效果保证，正式分发仍建议由法律专业人士审阅。
+提交贡献须确保有权按项目许可证提供原创改动，保留所有第三方许可。AI 辅助输出不自动证明独创性或排除第三方权利。公开平台允许的查看/fork、法定权利与项目许可分别理解；许可证不是技术防复制措施或法律效果保证。正式分发仍需按实际权属、服务条款及适用规则核对，不将本仓库说明当作法律意见或上架合规认证。
 
 未来 AI 服务接入需分别核对服务商的许可、账号授权和资格条件；本许可证**不自动满足**任何服务商的“开源客户端”订阅接入要求，不能为了接入而擅自改成允许商用的许可证。
 
