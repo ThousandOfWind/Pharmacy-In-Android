@@ -167,6 +167,16 @@ class OcrRulesTest {
         assertFalse(tagged.reviewed)
         assertEquals(tagged, applyOcrTag(tagged, "口服"))
         assertEquals(draft, applyOcrTag(draft, "家庭常备"))
+        assertEquals(listOf("自定义"), toggleOcrTag(tagged, "口服").tags)
+        val preexisting = draft.copy(tags = listOf("口服"))
+        assertEquals(preexisting, toggleOcrTag(preexisting, "口服")) // Same text isn't proof of this control's adoption.
+        val nameChoice = MedicineDraft(candidates = OcrCandidates(nameOptions = listOf("示例药")))
+        val pickedName = toggleOcrName(nameChoice, "示例药")
+        assertEquals("示例药", pickedName.name)
+        assertEquals("", toggleOcrName(pickedName, "示例药").name)
+        val manualName = nameChoice.copy(name = "示例药")
+        assertEquals(manualName, toggleOcrName(manualName, "示例药"))
+        assertEquals(pickedName.copy(ocrSelectedName = ""), toggleOcrName(pickedName.copy(ocrSelectedName = ""), "示例药"))
         val full = draft.copy(tags = (1..8).map { "标签$it" })
         assertEquals(full, applyOcrTag(full, "口服"))
         assertTrue(mergeRegionCandidates(c, OcrCandidates(information = MedicineInformation(storageConditions = "常温保存")),

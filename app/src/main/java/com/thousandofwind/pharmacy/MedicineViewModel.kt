@@ -51,7 +51,8 @@ data class MedicineDraft(
     val groupKey: String = "", val groupName: String = "",
     val coverPhoto: String = "",
     val keepExistingPhotos: Boolean = true,
-    val rotatedExistingPhotos: List<String> = emptyList()
+    val rotatedExistingPhotos: List<String> = emptyList(),
+    val ocrSelectedName: String = "", val ocrAddedTags: List<String> = emptyList()
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
@@ -61,6 +62,7 @@ data class MedicineDraft(
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
         putString("coverPhoto", coverPhoto); putBoolean("keepExistingPhotos", keepExistingPhotos)
         putStringArrayList("rotatedExistingPhotos", ArrayList(rotatedExistingPhotos))
+        putString("ocrSelectedName", ocrSelectedName); putStringArrayList("ocrAddedTags", ArrayList(ocrAddedTags))
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
         putStringArrayList("candidateNames", ArrayList(candidates.nameOptions))
@@ -96,7 +98,8 @@ data class MedicineDraft(
                     info.withValue(field, it.getBundle("information")?.getString(field.column).orEmpty())
                 }, it.getString("groupKey").orEmpty(), it.getString("groupName").orEmpty(),
                 it.getString("coverPhoto").orEmpty(), it.getBoolean("keepExistingPhotos", true),
-                it.getStringArrayList("rotatedExistingPhotos")?.toList().orEmpty()
+                it.getStringArrayList("rotatedExistingPhotos")?.toList().orEmpty(),
+                it.getString("ocrSelectedName").orEmpty(), it.getStringArrayList("ocrAddedTags")?.toList().orEmpty()
             )
         } ?: MedicineDraft()
     }
@@ -252,7 +255,13 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
 
     fun updateDraft(update: MedicineDraft.() -> MedicineDraft) {
         if (busy.value) return
-        change { copy(draft = draft.update(), error = null) }
+        change {
+            val next = draft.update()
+            copy(draft = next.copy(
+                ocrSelectedName = next.ocrSelectedName.takeIf { it == next.name }.orEmpty(),
+                ocrAddedTags = next.ocrAddedTags.filter { tag -> next.tags.any { it.equals(tag, true) } }
+            ), error = null)
+        }
     }
 
     fun hasUnsavedChanges() = session.value.screen == Screen.EDITOR && session.value.draft != session.value.baseline

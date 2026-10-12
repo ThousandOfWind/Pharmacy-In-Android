@@ -97,7 +97,7 @@ fun EditorScreen(
                 when (tab) {
                     0 -> {
                         Text(if (editing) "修改已保存的资料" else "核对并填写基本资料", style = MaterialTheme.typography.titleMedium)
-                        PaperField(draft.name, { value -> update { copy(name = value, reviewed = if (editing && !currentOcr) reviewed else false) } },
+                        PaperField(draft.name, { value -> update { copy(name = value, ocrSelectedName = "", reviewed = if (editing && !currentOcr) reviewed else false) } },
                             label = "药品名称（必填）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(), isError = state.session.error != null && draft.name.isBlank())
                         PaperField(draft.expiry, { value -> update { copy(expiry = value, reviewed = if (editing && !currentOcr) reviewed else false) } },
                             label = "有效期至（可选）", enabled = !state.busy, isError = draft.expiry.isNotBlank() && expiryDay(draft.expiry) == null,

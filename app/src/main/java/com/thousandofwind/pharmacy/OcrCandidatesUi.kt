@@ -27,9 +27,10 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
                 Text("药名候选 · 点击按钮选择", style = MaterialTheme.typography.labelLarge)
                 c.nameOptions.forEachIndexed { index, name ->
                     CandidateText("药名候选 ${index + 1}", name)
-                    OutlinedButton(onClick = { update { if (this.name.isBlank() || this.name == name) copy(name = if (this.name == name) "" else name, reviewed = false) else this } },
-                        enabled = (draft.name.isBlank() || draft.name == name) && !busy, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (draft.name == name) "已选此药名 · 点击取消" else "选择此药名")
+                    OutlinedButton(onClick = { update { toggleOcrName(this, name) } },
+                        enabled = toggleOcrName(draft, name) != draft && !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (draft.ocrSelectedName == name && draft.name == name) "已选此药名 · 点击取消"
+                            else if (draft.name.isNotBlank()) "名称已有填写 · 不覆盖" else "选择此药名")
                     }
                 }
             }
@@ -58,10 +59,10 @@ fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDra
                 c.tagSuggestions.forEach { suggestion ->
                     CandidateText("标签依据 · ${suggestion.tag}", suggestion.evidence)
                     val selected = draft.tags.any { it.equals(suggestion.tag, true) }
-                    OutlinedButton(onClick = { update { if (tags.any { it.equals(suggestion.tag, true) }) copy(tags = tags.filterNot { it.equals(suggestion.tag, true) }, reviewed = false)
-                            else applyOcrTag(this, suggestion.tag) } },
-                        enabled = !busy && (selected || applyOcrTag(draft, suggestion.tag) != draft), modifier = Modifier.fillMaxWidth()) {
-                        Text(if (selected) "移除已选标签：${suggestion.tag}" else "采用标签：${suggestion.tag}")
+                    OutlinedButton(onClick = { update { toggleOcrTag(this, suggestion.tag) } },
+                        enabled = !busy && toggleOcrTag(draft, suggestion.tag) != draft, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (draft.ocrAddedTags.any { it.equals(suggestion.tag, true) }) "取消本次标签：${suggestion.tag}"
+                            else if (selected) "已有标签 · 不改动：${suggestion.tag}" else "采用标签：${suggestion.tag}")
                     }
                 }
                 if (medicineTagsError(draft.tags + draft.tagInput) != null || draft.tags.size >= MAX_MEDICINE_TAGS)

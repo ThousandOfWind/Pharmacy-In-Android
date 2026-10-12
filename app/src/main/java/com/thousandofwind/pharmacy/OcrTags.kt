@@ -26,9 +26,17 @@ fun suggestOcrTags(candidates: OcrCandidates): List<OcrTagSuggestion> {
     return output
 }
 
+fun toggleOcrTag(draft: MedicineDraft, tag: String): MedicineDraft {
+    if (draft.candidates.tagSuggestions.none { it.tag == tag }) return draft
+    if (draft.ocrAddedTags.any { it.equals(tag, true) }) return draft.copy(
+        tags = draft.tags.filterNot { it.equals(tag, true) }, ocrAddedTags = draft.ocrAddedTags.filterNot { it.equals(tag, true) }, reviewed = false
+    )
+    return applyOcrTag(draft, tag)
+}
+
 fun applyOcrTag(draft: MedicineDraft, tag: String): MedicineDraft {
     if (draft.candidates.tagSuggestions.none { it.tag == tag }) return draft
     val tags = normalizeMedicineTags(draft.tags + tag)
     if (tags == draft.tags || medicineTagsError(tags + draft.tagInput) != null) return draft
-    return draft.copy(tags = tags, reviewed = false)
+    return draft.copy(tags = tags, ocrAddedTags = normalizeMedicineTags(draft.ocrAddedTags + tag), reviewed = false)
 }
