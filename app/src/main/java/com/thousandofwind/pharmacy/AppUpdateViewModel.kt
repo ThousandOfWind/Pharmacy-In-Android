@@ -24,7 +24,7 @@ data class AppUpdateState(
     val progress: Int = 0,
     val update: ReleaseUpdate? = null,
     val readyApk: File? = null,
-    val message: String = "仅检查公开 GitHub 更新，不上传药箱数据。"
+    val message: String = "直接检查公开发布文件，不使用 GitHub API，也不上传药箱数据。"
 )
 
 class AppUpdateViewModel(application: Application) : AndroidViewModel(application) {
@@ -37,19 +37,18 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun check() {
         if (mutable.value.checking || mutable.value.downloading) return
-        mutable.value = AppUpdateState(checking = true, message = "正在检查 GitHub 最新发布…")
+        mutable.value = AppUpdateState(checking = true, message = "正在读取最新发布的 update.json（不使用 API）…")
         viewModelScope.launch {
             try {
                 val latest = withContext(Dispatchers.IO) { client.latest() }
-                mutable.value = AppUpdateState(update = latest?.takeIf { it.versionCode > versionCode },
+                mutable.value = AppUpdateState(update = latest.takeIf { it.versionCode > versionCode },
                     message = when {
-                        latest == null -> "GitHub 尚未发布可安装版本。"
                         latest.versionCode <= versionCode -> "当前已是最新版本。"
                         else -> "发现新版本 ${latest.versionName}，是否下载？"
                     })
             } catch (e: CancellationException) { throw e }
-            catch (_: Exception) {
-                mutable.value = AppUpdateState(message = "检查失败：请检查网络，或稍后重试（GitHub 可能限制访问）。")
+            catch (e: Exception) {
+                mutable.value = AppUpdateState(message = "检查失败：${updateFailureNotice(e)}")
             }
         }
     }
@@ -80,7 +79,7 @@ class AppUpdateViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 mutable.update { it.copy(downloading = false, message = if (e is UpdateRejected) e.notice
-                    else "下载或校验失败，未安装任何更新。请检查网络后重试。") }
+                    else "下载或校验失败，未安装任何更新。${updateFailureNotice(e)}") }
             } finally { partial?.delete() }
         }
     }

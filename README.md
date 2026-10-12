@@ -20,7 +20,7 @@
 - **可选 Azure AI 助手**：自有资源/API Key/deployment、流式对话、本地会话；用户明确允许后才用只读工具查询库存基本资料，不上传照片、备注或说明书，不修改药箱。
 - **药品组与独立库存**：同药不同品牌、规格、批次可由用户明确关联；首页收纳，组内查看各条有效期、余量与位置，不合并资料或跨单位求和。
 - **备份与换机**：更多菜单导出完整药箱与照片，回读核对保存文件；自行传到新手机后校验、预览并合并导入，不覆盖现有药箱。空药箱提供旧手机导入入口，完成后引导核对。无需自建服务器，系统备份保持现状；ZIP 未加密，请妥善保管。
-- **关于与更新**：首页“更多 → 关于”查看当前版本、项目介绍和项目主页；点击“检查更新”才查询公开 GitHub Release，手动下载并校验后交给 Android 确认安装，不上传药箱数据或保存 GitHub 凭据。
+- **关于与更新**：首页“更多 → 关于”查看当前版本、项目介绍和项目主页；点击“检查更新”直接读取公开 Release 的 `update.json`（不调用 GitHub API），手动下载并校验后交给 Android 确认安装，不上传药箱数据或保存 GitHub 凭据。
 
 药品组及迁移见 [docs/medicine-groups.md](docs/medicine-groups.md)；备份格式、安全边界与使用步骤见 [docs/backup-restore.md](docs/backup-restore.md)。交互设计和数据规则见 [docs/interaction-flow.md](docs/interaction-flow.md)；OCR 样本结果、框选流程与未验证项见 [docs/photo-ocr.md](docs/photo-ocr.md)；手绘样式、当前信息层级、字体许可和验证边界见 [docs/paper-design.md](docs/paper-design.md)。
 
@@ -137,6 +137,12 @@ adb install -r .\app\build\outputs\apk\debug\app-debug.apk
 1. 打开仓库的 [最新 Release](https://github.com/ThousandOfWind/Pharmacy-In-Android/releases/latest)。
 2. 下载附件 `app-debug.apk`，传到手机安装。公开 Release 下载不需要 GitHub 登录。
 3. 后续在药箱首页点击 **更多 → 关于 → 检查更新** → **下载更新** → **安装更新**。首次可能需在系统设置中允许本应用安装未知应用，返回后仍由系统确认安装。
+
+检查更新直接读取 `https://github.com/ThousandOfWind/Pharmacy-In-Android/releases/latest/download/update.json`，不调用 REST API、不要求登录或 Token，避免 VPN 共享出口的匿名 API 限流。校验元数据版本与本仓库版本化跳转一致后，下载地址固定到该版本，避免 latest 在检查后变化；不读取元数据中的任意下载 URL。发布说明通过浏览器查看。
+
+检查/下载失败会区分超时、DNS、安全连接、HTTP 和校验问题；“浏览器下载 / 发布说明”始终提供官方发布页入口（已有检查结果时固定到该版本）。浏览器下载不经过应用内 SHA-256/包名/版本/签名校验，不保证与当前版本兼容；只选择官方 `app-debug.apk`，安装由 Android 确认。不要卸载或清除数据。首次取得这个修复版时，旧应用仍使用旧 API，需要先从发布页手动下载覆盖安装。
+
+此方案仍依赖 GitHub Release/CDN 的可达性；浏览器和药箱可能走不同 VPN 分应用代理，不能保证国内网络均可用。没有加入第三方镜像、凭据或降低 TLS 校验要求。
 
 下载只允许本仓库 Release 和受信任的 GitHub HTTPS 下载跳转；校验 SHA-256、大小（最大 150 MiB）、包名、版本及与已安装应用一致的签名。不支持静默安装或自动卸载。网络失败、缺少发布或拒绝授权不会影响本地药箱。
 
