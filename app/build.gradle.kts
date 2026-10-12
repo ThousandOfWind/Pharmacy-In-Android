@@ -55,12 +55,20 @@ android {
         compose = true
     }
 
+    listOf("debug", "release").forEach { variant ->
+        sourceSets.getByName(variant).assets.srcDir(layout.buildDirectory.dir("generated/noticeAssets/$variant"))
+    }
+
     packaging {
         resources {
+            // Duplicate metadata is replaced by full, per-artifact notices in generated legal assets.
+            // notice-assets.gradle.kts reads originals before this packaging exclusion.
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 }
+
+apply(from = "notice-assets.gradle.kts")
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")

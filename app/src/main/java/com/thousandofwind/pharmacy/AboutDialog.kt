@@ -20,6 +20,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -29,6 +32,7 @@ import androidx.core.content.FileProvider
 fun AboutDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    var document by rememberSaveable { mutableStateOf<LegalDocument?>(null) }
 
     fun install() {
         val apk = viewModel.state.value.readyApk
@@ -61,7 +65,14 @@ fun AboutDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
                 Text("记录家中药品、有效期、余量与位置。药箱数据保存在本地，日常管理可离线使用。")
                 Text("OCR 帮助录入，仍需核对；AI 助手需自行配置并主动使用。不提供诊断或用药建议。",
                     style = MaterialTheme.typography.bodySmall)
-                Text("源码可见，仅限非商业使用。", style = MaterialTheme.typography.bodySmall)
+                Text("源码可见；接收者仅获非商业使用权。原著作权人的依法保留权利与第三方许可分别适用。", style = MaterialTheme.typography.bodySmall)
+                Text("OCR 图片与结果本地处理，但 ML Kit SDK 可能联网并发送性能/使用指标；系统备份或云端文件提供方也可能处理数据。",
+                    style = MaterialTheme.typography.bodySmall)
+                Column {
+                    LegalDocument.entries.forEach { item ->
+                        TextButton(onClick = { document = item }) { Text(item.title) }
+                    }
+                }
                 TextButton(onClick = {
                     runCatching {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/$UPDATE_REPOSITORY")))
@@ -110,4 +121,5 @@ fun AboutDialog(viewModel: AppUpdateViewModel, onDismiss: () -> Unit) {
             }
         }
     )
+    document?.let { LegalDocumentDialog(it, dismiss = { document = null }) }
 }
