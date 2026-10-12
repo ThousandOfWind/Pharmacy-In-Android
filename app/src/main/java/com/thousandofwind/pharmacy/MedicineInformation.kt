@@ -15,6 +15,7 @@ enum class MedicineInformationField(
     MANUFACTURER("manufacturer", "生产厂家", MedicineInformationGroup.IDENTITY),
     APPROVAL_NUMBER("approval_number", "批准文号", MedicineInformationGroup.IDENTITY),
     BATCH_NUMBER("batch_number", "生产批号", MedicineInformationGroup.IDENTITY),
+    PRODUCTION_DATE("production_date", "生产日期", MedicineInformationGroup.IDENTITY, hint = "YYYY-MM 或 YYYY-MM-DD；独立记录，不用于推算有效期。"),
     STORAGE_LOCATION("storage_location", "存放位置", MedicineInformationGroup.IDENTITY, hint = "例如卧室抽屉；与说明书要求的贮藏条件不同。"),
     INGREDIENTS("ingredients", "成分", MedicineInformationGroup.LEAFLET, false, 5000),
     USAGE_AND_DOSAGE("usage_and_dosage", "用法用量", MedicineInformationGroup.LEAFLET, false, 5000),
@@ -43,7 +44,8 @@ data class MedicineInformation(
     @ColumnInfo(name = "precautions", defaultValue = "''") val precautions: String = "",
     @ColumnInfo(name = "interactions", defaultValue = "''") val interactions: String = "",
     @ColumnInfo(name = "storage_conditions", defaultValue = "''") val storageConditions: String = "",
-    @ColumnInfo(name = "leaflet_source", defaultValue = "''") val leafletSource: String = ""
+    @ColumnInfo(name = "leaflet_source", defaultValue = "''") val leafletSource: String = "",
+    @ColumnInfo(name = "production_date", defaultValue = "''") val productionDate: String = ""
 ) {
     operator fun get(field: MedicineInformationField): String = when (field) {
         MedicineInformationField.GENERIC_NAME -> genericName
@@ -52,6 +54,7 @@ data class MedicineInformation(
         MedicineInformationField.MANUFACTURER -> manufacturer
         MedicineInformationField.APPROVAL_NUMBER -> approvalNumber
         MedicineInformationField.BATCH_NUMBER -> batchNumber
+        MedicineInformationField.PRODUCTION_DATE -> productionDate
         MedicineInformationField.STORAGE_LOCATION -> storageLocation
         MedicineInformationField.INGREDIENTS -> ingredients
         MedicineInformationField.USAGE_AND_DOSAGE -> usageAndDosage
@@ -70,6 +73,7 @@ data class MedicineInformation(
         MedicineInformationField.MANUFACTURER -> copy(manufacturer = value)
         MedicineInformationField.APPROVAL_NUMBER -> copy(approvalNumber = value)
         MedicineInformationField.BATCH_NUMBER -> copy(batchNumber = value)
+        MedicineInformationField.PRODUCTION_DATE -> copy(productionDate = value)
         MedicineInformationField.STORAGE_LOCATION -> copy(storageLocation = value)
         MedicineInformationField.INGREDIENTS -> copy(ingredients = value)
         MedicineInformationField.USAGE_AND_DOSAGE -> copy(usageAndDosage = value)
@@ -90,6 +94,7 @@ data class MedicineInformation(
 }
 
 fun medicineInformationFieldError(field: MedicineInformationField, value: String): String? = when {
+    field == MedicineInformationField.PRODUCTION_DATE && value.isNotBlank() && expiryDay(value) == null -> "生产日期请填 YYYY-MM 或 YYYY-MM-DD"
     value.trim().length > field.maxLength -> "${field.label}最多 ${field.maxLength} 个字符，请精简填写并另行保管完整说明书"
     field.singleLine && value.trim().any { it.isISOControl() || it == '\u2028' || it == '\u2029' } -> "${field.label}不能包含换行或控制字符"
     else -> null

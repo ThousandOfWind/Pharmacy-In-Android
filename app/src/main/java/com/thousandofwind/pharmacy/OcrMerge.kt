@@ -22,8 +22,15 @@ fun mergePhotoCandidates(previous: OcrCandidates, incoming: OcrCandidates): OcrC
         value.withValue(field, merge(field.label, previous.information[field], incoming.information[field]))
     }
     val names = (previous.nameOptions + incoming.nameOptions + listOf(previous.name, incoming.name)).filter(String::isNotBlank).distinct().filterNot { it == name }
-    return OcrCandidates(name, expiry, efficacy, info, names, warnings.distinct())
+    return OcrCandidates(name, expiry, efficacy, info, names, warnings.distinct(),
+        (previous.tagSuggestions + incoming.tagSuggestions).distinctBy { it.tag })
 }
+
+/** Without per-photo provenance, a whole-photo retry replaces the complete unadopted candidate
+ * set. It must not silently retain a wrong pre-rotation value or obsolete tag evidence. */
+fun replacePhotoCandidates(incoming: OcrCandidates): OcrCandidates = incoming.copy(
+    warnings = (incoming.warnings + "本次整图结果已替换全部待采用候选；其他照片可重新识别，已填写资料和历史原文保留").distinct()
+)
 
 /** Region retries are field-specific. Empty/unusable results never erase earlier candidates. */
 fun mergeRegionCandidates(previous: OcrCandidates, incoming: OcrCandidates, target: String): OcrCandidates {
@@ -40,5 +47,5 @@ fun mergeRegionCandidates(previous: OcrCandidates, incoming: OcrCandidates, targ
             ) else previous
         }
     }
-    return merged.copy(warnings = (previous.warnings + incoming.warnings).distinct())
+    return merged.copy(warnings = (previous.warnings + incoming.warnings).distinct(), tagSuggestions = suggestOcrTags(merged))
 }

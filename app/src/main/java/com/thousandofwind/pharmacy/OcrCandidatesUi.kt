@@ -1,6 +1,8 @@
 package com.thousandofwind.pharmacy
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -11,55 +13,104 @@ import androidx.compose.ui.unit.dp
 fun OcrCandidatesPanel(draft: MedicineDraft, busy: Boolean, update: (MedicineDraft.() -> MedicineDraft) -> Unit) {
     val c = draft.candidates
     var leaflet by rememberSaveable(draft.id) { mutableStateOf(false) }
-    var inspect by rememberSaveable(draft.id) { mutableStateOf(false) }
     var raw by rememberSaveable(draft.id) { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+    var assign by rememberSaveable(draft.id) { mutableStateOf(false) }
+    if (assign) OcrTextAssignmentDialog(draft, busy, { assign = false }, update)
+    Surface(color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("识别候选 · 待你核对", style = MaterialTheme.typography.titleMedium)
-            Text("识别可能有错字或漏字。对照照片后采用，已有填写不会覆盖。", style = MaterialTheme.typography.bodySmall)
-            if (c.name.isNotBlank()) Text("药名：${c.name}")
-            if (c.expiry.isNotBlank()) Text("有效期至：${c.expiry}")
-            c.nameOptions.forEach { name ->
-                TextButton(onClick = { update { if (this.name.isBlank()) copy(name = name, reviewed = false) else this } }, enabled = draft.name.isBlank() && !busy) { Text("选择药名：$name") }
+            Text("① 核对识别结果", style = MaterialTheme.typography.titleMedium)
+            Text("下面是待核对文字，不是按钮。请对照照片；识别结果不会自动写入资料栏。", style = MaterialTheme.typography.bodySmall)
+            if (c.name.isNotBlank()) CandidateText("药品名称", c.name)
+            if (c.expiry.isNotBlank()) CandidateText("有效期至", c.expiry)
+            if (c.nameOptions.isNotEmpty()) {
+                Text("药名候选 · 点击按钮选择", style = MaterialTheme.typography.labelLarge)
+                c.nameOptions.forEachIndexed { index, name ->
+                    CandidateText("药名候选 ${index + 1}", name)
+                    OutlinedButton(onClick = { update { if (this.name.isBlank() || this.name == name) copy(name = if (this.name == name) "" else name, reviewed = false) else this } },
+                        enabled = (draft.name.isBlank() || draft.name == name) && !busy, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (draft.name == name) "已选此药名 · 点击取消" else "选择此药名")
+                    }
+                }
             }
             if (c.name.isBlank() && c.nameOptions.isEmpty()) Text("药名未提取到，可补拍正面或手动填写。", style = MaterialTheme.typography.bodySmall)
-            val identityCount = MedicineInformationField.entries.count { it.group == MedicineInformationGroup.IDENTITY && c.information[it].isNotBlank() }
-            val leafletCount = MedicineInformationField.entries.count { it.group == MedicineInformationGroup.LEAFLET && c.information[it].isNotBlank() } + if (c.efficacy.isNotBlank()) 1 else 0
-            Text("资料 $identityCount 项 · 说明书 $leafletCount 项", style = MaterialTheme.typography.bodySmall)
-            if (c.expiry.isBlank()) Text("未识别到明确的到期日期；生产日期和有效期时长不会代填。", style = MaterialTheme.typography.bodySmall)
-            PenButton("采用空白资料", { update { fillEmptyOcrFields(this) } }, Modifier.fillMaxWidth(), enabled = !busy && fillEmptyOcrFields(draft) != draft)
+            if (c.expiry.isBlank()) Text("尚无可采用的到期日期。如原文中已有日期，可复制并指定归入有效期；生产日期和有效期时长不会代填。", style = MaterialTheme.typography.bodySmall)
+            // Key identity results are visible without another disclosure; users can see what will be adopted.
+            MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.IDENTITY && c.information[it].isNotBlank() }.forEach { field ->
+                CandidateText(field.label, c.information[field])
+            }
             c.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = PaperPalette.Error) }
+            HorizontalDivider()
+            Text("② 点击按钮填入资料栏", style = MaterialTheme.typography.titleMedium)
+            Text("只填空白的名称、日期及品牌/厂家/规格等资料；已有填写保留。", style = MaterialTheme.typography.bodySmall)
+            val canFill = fillEmptyOcrFields(draft) != draft
+            Button(onClick = { update { fillEmptyOcrFields(this) } }, Modifier.fillMaxWidth(), enabled = !busy && canFill) {
+                InkIcon(InkSymbol.CHECK, color = MaterialTheme.colorScheme.onPrimary)
+                Spacer(Modifier.width(8.dp))
+                Text(if (canFill) "核对后采用空白资料" else "暂无可填入的空白资料")
+            }
+            if (!canFill && (c.name.isNotBlank() || c.expiry.isNotBlank() || c.information != MedicineInformation()))
+                Text("已采用的资料可在下方栏位查看、修改；已有内容不会被覆盖。", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(onClick = { assign = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("粘贴原文 → 指定资料栏") }
+            if (c.tagSuggestions.isNotEmpty()) {
+                Text("自动识别的常用标签 · 对照依据后点击采用", style = MaterialTheme.typography.labelLarge)
+                Text("仅用于整理，不作为用药建议；不会根据药名、禁忌推断，也不自动添加家庭常备/出行备用。", style = MaterialTheme.typography.bodySmall)
+                c.tagSuggestions.forEach { suggestion ->
+                    CandidateText("标签依据 · ${suggestion.tag}", suggestion.evidence)
+                    val selected = draft.tags.any { it.equals(suggestion.tag, true) }
+                    OutlinedButton(onClick = { update { if (tags.any { it.equals(suggestion.tag, true) }) copy(tags = tags.filterNot { it.equals(suggestion.tag, true) }, reviewed = false)
+                            else applyOcrTag(this, suggestion.tag) } },
+                        enabled = !busy && (selected || applyOcrTag(draft, suggestion.tag) != draft), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (selected) "移除已选标签：${suggestion.tag}" else "采用标签：${suggestion.tag}")
+                    }
+                }
+                if (medicineTagsError(draft.tags + draft.tagInput) != null || draft.tags.size >= MAX_MEDICINE_TAGS)
+                    Text("标签已达上限或自定义输入待修正，可在下方标签栏调整。", style = MaterialTheme.typography.bodySmall)
+            }
+            val leafletCount = MedicineInformationField.entries.count { it.group == MedicineInformationGroup.LEAFLET && c.information[it].isNotBlank() } + if (c.efficacy.isNotBlank()) 1 else 0
             if (leafletCount > 0) {
-                Text("请确认照片对应当前药品的同厂家、同规格说明书。安全条目只逐项采用，不批量写入。", style = MaterialTheme.typography.bodySmall)
-                PaperDisclosure("逐项核对说明书候选", leaflet, { leaflet = !leaflet }) {
-                    if (c.efficacy.isNotBlank()) CandidateValue("适应症 / 功能主治", c.efficacy, !busy && draft.efficacy.isBlank()) {
+                Text("说明书 $leafletCount 项：剂量、禁忌等安全条目需逐项对照同厂家、同规格照片，不批量写入。", style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(onClick = { leaflet = !leaflet }, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (leaflet) "收起说明书候选" else "展开并逐项核对说明书候选")
+                    Spacer(Modifier.width(8.dp)); InkIcon(InkSymbol.DOWN)
+                }
+                if (leaflet) {
+                    if (c.efficacy.isNotBlank()) CandidateValue("适应症 / 功能主治", c.efficacy, !busy && draft.efficacy.isBlank(), draft.efficacy.isNotBlank()) {
                         update { if (efficacy.isBlank()) copy(efficacy = candidates.efficacy, reviewed = false) else this }
                     }
                     MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.LEAFLET && c.information[it].isNotBlank() }.forEach { field ->
-                        CandidateValue(field.label, c.information[field], !busy && draft.information[field].isBlank()) {
+                        CandidateValue(field.label, c.information[field], !busy && draft.information[field].isBlank(), draft.information[field].isNotBlank()) {
                             update { if (information[field].isBlank()) copy(information = information.withValue(field, candidates.information[field]), reviewed = false) else this }
                         }
                     }
                 }
             }
-            PaperDisclosure("核对资料候选", inspect, { inspect = !inspect }) {
-                MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.IDENTITY && c.information[it].isNotBlank() }.forEach { field ->
-                    CandidateValue(field.label, c.information[field], !busy && draft.information[field].isBlank()) {
-                        update { if (information[field].isBlank()) copy(information = information.withValue(field, candidates.information[field]), reviewed = false) else this }
-                    }
-                }
+            OutlinedButton(onClick = { raw = !raw }, modifier = Modifier.fillMaxWidth()) { Text(if (raw) "收起识别原文" else "查看 / 复制识别原文") }
+            if (raw) {
+                Text("长按文字选择，可拖动选择范围并复制。复制后点击上面的“粘贴原文 → 指定资料栏”。历史原文保留，可能包含已删除照片或重识别前的结果。", style = MaterialTheme.typography.bodySmall)
+                SelectableOcrText(draft.rawText)
             }
-            TextButton(onClick = { raw = !raw }) { Text(if (raw) "收起识别原文" else "查看识别原文") }
-            if (raw) Text(draft.rawText, style = MaterialTheme.typography.bodySmall)
+            Text("③ 前往基本资料检查，勾选底部确认框，再保存", style = MaterialTheme.typography.labelLarge, color = PaperPalette.Green)
         }
     }
 }
 
 @Composable
-private fun CandidateValue(label: String, value: String, enabled: Boolean, apply: () -> Unit) {
+private fun CandidateText(label: String, value: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
+
+@Composable
+private fun CandidateValue(label: String, value: String, enabled: Boolean, filled: Boolean, apply: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.titleSmall)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
-        TextButton(onClick = apply, enabled = enabled) { Text(if (enabled) "核对后采用" else "保留已有填写") }
+        CandidateText(label, value)
+        OutlinedButton(onClick = apply, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+            Text(if (filled) "该栏已有填写 · 不覆盖" else "核对后采用这项")
+        }
     }
 }

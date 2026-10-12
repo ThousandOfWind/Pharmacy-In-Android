@@ -75,7 +75,10 @@ class MedicineRulesTest {
 
     @Test fun informationLimitsRejectRatherThanTruncateAndSearchOnlyIdentityFields() {
         MedicineInformationField.entries.forEach { field ->
-            assertNull(medicineInformationFieldError(field, "字".repeat(field.maxLength)))
+            if (field == MedicineInformationField.PRODUCTION_DATE) {
+                assertNull(medicineInformationFieldError(field, "2026-03-03"))
+                assertNotNull(medicineInformationFieldError(field, "2026-02-30"))
+            } else assertNull(medicineInformationFieldError(field, "字".repeat(field.maxLength)))
             assertNotNull(medicineInformationFieldError(field, "字".repeat(field.maxLength + 1)))
         }
         listOf("A\nB", "A\u2028B", "A\u2029B").forEach {

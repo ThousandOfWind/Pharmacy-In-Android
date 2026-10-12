@@ -50,7 +50,8 @@ data class MedicineDraft(
     val information: MedicineInformation = MedicineInformation(),
     val groupKey: String = "", val groupName: String = "",
     val coverPhoto: String = "",
-    val keepExistingPhotos: Boolean = true
+    val keepExistingPhotos: Boolean = true,
+    val rotatedExistingPhotos: List<String> = emptyList()
 ) {
     fun toBundle() = Bundle().apply {
         putLong("id", id); putString("name", name); putString("expiry", expiry)
@@ -59,10 +60,13 @@ data class MedicineDraft(
         putString("efficacy", efficacy); putString("notes", notes)
         putStringArrayList("photos", ArrayList(photos)); putString("rawText", rawText)
         putString("coverPhoto", coverPhoto); putBoolean("keepExistingPhotos", keepExistingPhotos)
+        putStringArrayList("rotatedExistingPhotos", ArrayList(rotatedExistingPhotos))
         putString("candidateName", candidates.name); putString("candidateExpiry", candidates.expiry)
         putString("candidateEfficacy", candidates.efficacy); putBoolean("reviewed", reviewed)
         putStringArrayList("candidateNames", ArrayList(candidates.nameOptions))
         putStringArrayList("candidateWarnings", ArrayList(candidates.warnings))
+        putStringArrayList("candidateTagNames", ArrayList(candidates.tagSuggestions.map { it.tag }))
+        putStringArrayList("candidateTagEvidence", ArrayList(candidates.tagSuggestions.map { it.evidence }))
         putBundle("candidateInformation", Bundle().apply {
             MedicineInformationField.entries.forEach { putString(it.column, candidates.information[it]) }
         })
@@ -82,13 +86,17 @@ data class MedicineDraft(
                 OcrCandidates(it.getString("candidateName").orEmpty(), it.getString("candidateExpiry").orEmpty(), it.getString("candidateEfficacy").orEmpty(),
                     MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
                         info.withValue(field, it.getBundle("candidateInformation")?.getString(field.column).orEmpty())
-                    }, it.getStringArrayList("candidateNames")?.toList().orEmpty(), it.getStringArrayList("candidateWarnings")?.toList().orEmpty()),
+                    }, it.getStringArrayList("candidateNames")?.toList().orEmpty(), it.getStringArrayList("candidateWarnings")?.toList().orEmpty(),
+                    it.getStringArrayList("candidateTagNames").orEmpty().zip(it.getStringArrayList("candidateTagEvidence").orEmpty()) { tag, evidence ->
+                        OcrTagSuggestion(tag, evidence)
+                    }),
                 it.getBoolean("reviewed"),
                 normalizeMedicineTags(it.getStringArrayList("tags")?.toList().orEmpty()), it.getString("tagInput").orEmpty(),
                 MedicineInformationField.entries.fold(MedicineInformation()) { info, field ->
                     info.withValue(field, it.getBundle("information")?.getString(field.column).orEmpty())
                 }, it.getString("groupKey").orEmpty(), it.getString("groupName").orEmpty(),
-                it.getString("coverPhoto").orEmpty(), it.getBoolean("keepExistingPhotos", true)
+                it.getString("coverPhoto").orEmpty(), it.getBoolean("keepExistingPhotos", true),
+                it.getStringArrayList("rotatedExistingPhotos")?.toList().orEmpty()
             )
         } ?: MedicineDraft()
     }
@@ -289,13 +297,13 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         if (busy.value || scanning.value || !uiState.value.loaded || uiState.value.databaseError != null) return
         val draft = session.value.draft
         val baseline = session.value.baseline
-        val retained = retainedMedicinePhotos(draft.photos, baseline.photos, draft.coverPhoto, draft.keepExistingPhotos)
+        val retained = retainedMedicinePhotos(draft.photos, baseline.photos, draft.coverPhoto, draft.keepExistingPhotos, draft.rotatedExistingPhotos)
         // Include an unfinished custom entry so tapping Save never silently drops a typed tag.
         val tags = normalizeMedicineTags(draft.tags + draft.tagInput)
         val error = formError(draft.name, draft.expiry, draft.quantity, draft.unit)
             ?: medicineTagsError(tags)
             ?: medicineInformationError(draft.information)
-            ?: if (draft.rawText.isNotBlank() && !draft.reviewed) "请先对照照片核对名称、有效期及已采用的资料" else null
+            ?: if (requiresOcrConfirmation(draft, session.value.baseline)) "请先对照照片核对名称、有效期及已采用的资料" else null
         if (error != null) { change { copy(error = error) }; return }
         busy.value = true
         viewModelScope.launch {
@@ -386,7 +394,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 val localPhoto = withContext(Dispatchers.IO) { PhotoStore.importPhoto(context, source) }
                 imported = localPhoto
                 if (generation != scanGeneration) return@launch
-                updateDraft { copy(photos = photos + localPhoto, coverPhoto = coverPhoto.ifBlank { photos.firstOrNull() ?: localPhoto }) }
+                updateDraft { copy(photos = photos + localPhoto, coverPhoto = coverPhoto.ifBlank { photos.firstOrNull() ?: localPhoto }, reviewed = false) }
                 val text = recognize(Uri.parse(localPhoto))
                 if (generation != scanGeneration) return@launch
                 if (text.isBlank()) { report("未识别到文字。照片留在本次草稿中，可选为药品图、补拍或手动填写。"); return@launch }
@@ -408,6 +416,45 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         }
     }
 
+    fun deletePhoto(photo: String) {
+        if (scanning.value || busy.value || session.value.screen != Screen.EDITOR || photo !in session.value.draft.photos) return
+        // Only unlink in the draft. Original bytes remain available if editing is cancelled or undone.
+        // Candidates currently have no per-photo provenance; clear all unadopted suggestions rather
+        // than leave a removed image's suggestions applicable. Adopted/manual fields and raw text stay.
+        val baselinePhotos = session.value.baseline.photos
+        updateDraft { removeDraftPhoto(this, photo) }
+        val temporary = photo !in baselinePhotos
+        viewModelScope.launch { if (temporary && !cleanupPhotos(listOf(photo))) report("临时照片清理失败") }
+        report("已从草稿移除照片；已填写资料和原文保留，待采用候选已清空。保存后清理未引用文件，取消编辑保留原记录")
+    }
+
+    fun rotatePhoto(photo: String, done: (String) -> Unit) {
+        if (scanning.value || busy.value || session.value.screen != Screen.EDITOR || photo !in session.value.draft.photos) return
+        scanning.value = true
+        val generation = ++scanGeneration
+        viewModelScope.launch {
+            var rotated: String? = null
+            try {
+                val result = withContext(Dispatchers.IO) { PhotoStore.rotateClockwise(getApplication(), photo) }
+                rotated = result
+                if (generation != scanGeneration) return@launch
+                val wasExisting = photo in session.value.baseline.photos || photo in session.value.draft.rotatedExistingPhotos
+                updateDraft { replaceDraftPhoto(this, photo, result, wasExisting) }
+                done(result)
+                if (!cleanupPhotos(listOf(photo))) report("旋转完成；旧临时副本清理失败")
+                report("照片已顺时针旋转90°；长边超过2400像素的照片会缩小，可重识别，保存后生效")
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (generation == scanGeneration) report("旋转失败，原照片未改动，请重试")
+            } finally {
+                if (generation != scanGeneration) rotated?.let { cleanupPhotos(listOf(it)) }
+                if (generation == scanGeneration) scanning.value = false
+            }
+        }
+    }
+
+    fun rescanPhoto(photo: String) = scanRegion(photo, OcrRegion(0f, 0f, 1f, 1f), OCR_TARGET_ALL) {}
+
     fun scanRegion(photo: String, region: OcrRegion, target: String, done: (Boolean) -> Unit) {
         if (scanning.value || busy.value || session.value.screen != Screen.EDITOR || photo !in session.value.draft.photos || !region.valid()) return
         scanning.value = true
@@ -424,16 +471,23 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
                 }
                 val text = recognize(InputImage.fromBitmap(cropped, 0))
                 if (generation != scanGeneration) return@launch
-                if (text.isBlank()) { report("框选中未识别到文字，原候选已保留，请重画或补拍"); done(false); return@launch }
+                if (text.isBlank()) {
+                    report(if (target == OCR_TARGET_ALL) "整图未识别到文字，原候选已保留，可旋转、框选或补拍" else "框选中未识别到文字，原候选已保留，请重画或补拍")
+                    done(false); return@launch
+                }
                 val combined = appendOcrText(session.value.draft.rawText, text)
                 if (combined == null) { report("累计识别原文超过 50000 字符，本次结果未采用；原图和原候选保留。"); done(false); return@launch }
-                val incoming = regionCandidates(text, target)
-                updateDraft { copy(rawText = combined, candidates = mergeRegionCandidates(candidates, incoming, target), reviewed = false) }
-                report("框选识别完成，请对照原图核对后采用")
+                val incoming = if (target == OCR_TARGET_ALL) extractCandidates(text) else regionCandidates(text, target)
+                updateDraft { copy(rawText = combined, candidates = if (target == OCR_TARGET_ALL) replacePhotoCandidates(incoming)
+                    else mergeRegionCandidates(candidates, incoming, target), reviewed = false) }
+                report(if (target == OCR_TARGET_ALL) "整图识别完成，请对照照片核对后采用" else "框选识别完成，请对照原图核对后采用")
                 done(true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if (generation == scanGeneration) { report("框选识别失败，请重试或补拍"); done(false) }
+                if (generation == scanGeneration) {
+                    report(if (target == OCR_TARGET_ALL) "整图识别失败，原候选已保留，请重试或补拍" else "框选识别失败，请重试或补拍")
+                    done(false)
+                }
             } finally { if (generation == scanGeneration) scanning.value = false }
         }
     }
