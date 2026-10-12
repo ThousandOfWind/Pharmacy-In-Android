@@ -9,10 +9,12 @@ fun retainedMedicinePhotos(
 ): List<String> {
     val selected = cover.takeIf { it in photos } ?: photos.firstOrNull() ?: return emptyList()
     if (!keepExisting) return listOf(selected)
-    val remaining = existing.filter { it in photos } + rotatedExisting.filter { it in photos }
+    val retainable = (existing + rotatedExisting).toHashSet()
+    val remaining = photos.filter { it in retainable }
     val index = remaining.indexOf(selected)
-    // Only retain still-linked originals; removed/rotated files must not reappear on save.
-    // Move just one occurrence to the front, preserving legal backup order and multiplicity.
+    // Filter the current draft, not the baseline: deletion/rotation of duplicate references must
+    // preserve the current order and multiplicity without resurrecting old occurrences.
+    // Move just one occurrence to the front.
     return if (index == 0) remaining else listOf(selected) + remaining.filterIndexed { i, _ -> i != index }
 }
 
@@ -27,7 +29,7 @@ fun replaceDraftPhoto(draft: MedicineDraft, old: String, replacement: String, wa
 fun removeDraftPhoto(draft: MedicineDraft, photo: String): MedicineDraft {
     val remaining = draft.photos - photo
     return draft.copy(photos = remaining, coverPhoto = if (draft.coverPhoto == photo) remaining.firstOrNull().orEmpty() else draft.coverPhoto,
-        candidates = OcrCandidates(), rotatedExistingPhotos = draft.rotatedExistingPhotos - photo, reviewed = false)
+        candidates = OcrCandidates(), rotatedExistingPhotos = if (photo in remaining) draft.rotatedExistingPhotos else draft.rotatedExistingPhotos - photo, reviewed = false)
 }
 
 fun unreferencedPhotos(candidates: List<String>, protected: Collection<String>): List<String> {

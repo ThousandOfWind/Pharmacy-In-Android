@@ -33,6 +33,11 @@ class PhotoRetentionTest {
         assertEquals(listOf("expiry"), retainedMedicinePhotos(removedCover.photos, old, removedCover.coverPhoto, true, removedCover.rotatedExistingPhotos))
         val duplicateAlbum = listOf("front", "expiry", "front", "expiry")
         assertEquals(duplicateAlbum, retainedMedicinePhotos(duplicateAlbum, duplicateAlbum, "front", true))
+        assertEquals(listOf("front", "expiry", "expiry"), retainedMedicinePhotos(listOf("expiry", "front", "expiry"), duplicateAlbum, "front", true))
+        val duplicateRotation = replaceDraftPhoto(MedicineDraft(photos = duplicateAlbum, coverPhoto = "front"), "front", "rotated", true)
+        assertEquals(listOf("rotated", "expiry", "rotated", "expiry"), retainedMedicinePhotos(duplicateRotation.photos, duplicateAlbum, "rotated", true, duplicateRotation.rotatedExistingPhotos))
+        val removeOne = removeDraftPhoto(duplicateRotation, "rotated")
+        assertEquals(listOf("expiry", "rotated", "expiry"), retainedMedicinePhotos(removeOne.photos, duplicateAlbum, removeOne.coverPhoto, true, removeOne.rotatedExistingPhotos))
         assertEquals(listOf("expiry", "front", "front", "expiry"),
             retainedMedicinePhotos(duplicateAlbum, duplicateAlbum, "expiry", true))
     }

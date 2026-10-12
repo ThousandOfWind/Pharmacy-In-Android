@@ -141,11 +141,11 @@ fun PhotoStrip(
 ) {
     var enlarged by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
-    var actions by rememberSaveable { mutableStateOf<String?>(null) }
+    var actions by rememberSaveable { mutableStateOf<Int?>(null) }
     LaunchedEffect(photos) {
         if (enlarged !in photos) enlarged = null
         if (deleting !in photos) deleting = null
-        if (actions !in photos) actions = null
+        actions = null
     }
     fun rotate(photo: String) {
         onRotate?.invoke(photo) { rotated -> if (enlarged == photo) enlarged = rotated }
@@ -165,8 +165,8 @@ fun PhotoStrip(
                 if (onRotate != null) OutlinedButton(onClick = { rotate(photo) }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("旋转90°") }
                 if (onCrop != null) OutlinedButton(onClick = { onCrop(photo) }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("框选重识别") }
                 if (onRotate != null || onDelete != null || onRescan != null) Box {
-                    OutlinedButton(onClick = { actions = photo }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("删除 / 整图识别") }
-                    DropdownMenu(expanded = actions == photo, onDismissRequest = { actions = null }) {
+                    OutlinedButton(onClick = { actions = index }, enabled = enabled, modifier = Modifier.width(156.dp)) { Text("删除 / 整图识别") }
+                    DropdownMenu(expanded = actions == index, onDismissRequest = { actions = null }) {
                         if (onRescan != null) DropdownMenuItem(text = { Text("整图重识别（替换候选）") }, enabled = enabled,
                             onClick = { actions = null; onRescan(photo) })
                         if (onDelete != null) DropdownMenuItem(text = { Text("删除照片", color = PaperPalette.Error) }, enabled = enabled,
