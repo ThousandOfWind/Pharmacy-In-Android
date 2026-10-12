@@ -100,7 +100,7 @@ fun CabinetScreen(
                             filtered -> "筛选结果"
                             managing -> "已选 ${selected.size} 条 / 共 ${rows.size} 条"
                             else -> "药箱里的药"
-                        }, Modifier.weight(1f), style = if (state.session.search.isBlank()) PaperHeading else MaterialTheme.typography.titleSmall,
+                        }, Modifier.weight(1f), style = if (managing || state.session.search.isNotBlank()) MaterialTheme.typography.titleSmall else PaperHeading,
                         color = PaperPalette.Muted
                     )
                     TextButton(onClick = { showFilters = true }, enabled = !state.busy) { InkIcon(InkSymbol.FILTER); Spacer(Modifier.width(5.dp)); Text("筛选") }
