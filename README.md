@@ -95,7 +95,7 @@ Lint 报告：`app/build/reports/lint-results-debug.html`。
 
 项目自带 [pharmacy-local-e2e](.pi/skills/pharmacy-local-e2e/SKILL.md)，默认使用固定版 **Maestro 2.11.0 CLI**，可选使用官方 MCP。Pi 在项目受信任后发现它；运行 `/reload` 后可用 `/skill:pharmacy-local-e2e` 显式调用。其他支持 Agent Skills 的工具也可加载该目录。
 
-先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
+仅修改文档、注释或提示文案而未改变执行逻辑时，不跑测试或构建；只检查内容、diff、必要语法和独立 review。需要设备验收时，先按 [本地配置说明](.pi/skills/pharmacy-local-e2e/references/local-testing.md) 设置被 Git 忽略的 `.pi/pharmacy-e2e.local.json`，然后在**本次开发 worktree 根目录**运行：
 
 ```powershell
 node .pi/skills/pharmacy-local-e2e/scripts/e2e.mjs doctor

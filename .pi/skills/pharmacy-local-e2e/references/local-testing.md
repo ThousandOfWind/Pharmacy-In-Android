@@ -38,6 +38,8 @@ avdmanager.bat create avd --name Pharmacy_E2E_Backup_API34 --package "system-ima
 
 ## 验收入口
 
+本入口用于需要设备验证的开发/修复/实验或明确验收请求。仅改文档、注释、提示文案而未改变执行逻辑时，只做内容/diff/必要语法和独立 review，不运行 UT、Lint、构建或以下设备验收流程。
+
 从目标项目根目录运行：
 
 ```powershell

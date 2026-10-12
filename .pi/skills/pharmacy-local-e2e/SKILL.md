@@ -12,6 +12,7 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and a task-isola
 
 - 在**本次开发 worktree 的项目根目录**执行命令。脚本以当前 Git 根目录构建，不会使用旧对比 APK。
 - 仅功能开发／修复、实验范围内必要的本地验证或用户明确要求运行时操作模拟器。审阅、规划、纯文档修改或仅安装 skill 不授权设备/业务操作。
+- **只改文档、指令、注释或日志/错误提示文案而不改变执行逻辑时，不运行本验收流程，也不主动跑 UT、Lint 或构建**；仅检查内容、diff、必要语法和独立 review。脚本文件中的纯文案改动不例外，不能因为调用 skill 的 `run` 会构建 APK 就把它当作文本验证。现有 CI 自动运行不等于此类改动需要测试或 APK。
 - 若当前项目存在 `AGENTS.md`，先读取它；同时阅读 [README 的本地开发与构建说明](../../../README.md)，不存在的指导文件不作为运行前提。保护未提交修改，遵循项目 worktree 开发规则；项目内 skill、脚本和文档改动同样需要走提交、PR 与 review 流程。本 skill 的调用仅执行本地验收，不独立触发 push、PR、合并或部署。
 - 阅读 [references/local-testing.md](references/local-testing.md)，了解独立 AVD 创建、任务预留、环境、键盘和常见失败。**本仓库 [AGENTS.md](../../../AGENTS.md)「独立本地测试的常设授权」已允许任务隔离测试，不逐次等待用户 approve**；来源/身份满足下述边界后直接执行。授权来自用户和项目指令，不来自安装 skill；其他仓库须核对其授权，不能照搬本仓库授权。
 - 将本 skill 的 `scripts/e2e.mjs` 解析为**绝对路径**；以下 `<runner>` 代表它。不要把占位符原样交给 shell。
