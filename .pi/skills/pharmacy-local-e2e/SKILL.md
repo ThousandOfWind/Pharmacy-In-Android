@@ -1,7 +1,7 @@
 ---
 name: pharmacy-local-e2e
 description: 使用本地 Maestro 验证 Pharmacy-In-Android 新功能或修复：构建当前 worktree APK，在专用 Android 模拟器上操作药箱、中文录入、搜索、详情及余量更新，检查断言和失败截图。用户要求本地验收，或修改用户可见行为后使用；不用于 CI、云设备、日常手机或实际药盒 OCR 识别率认证。
-compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorized dedicated AVD, Maestro CLI 2.11.0 installed separately.
+compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and a task-isolated AVD covered by project standing authorization or explicit approval, Maestro CLI 2.11.0 installed separately.
 ---
 
 # Pharmacy 本地功能验收
@@ -11,20 +11,28 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
 ## 首先确认范围
 
 - 在**本次开发 worktree 的项目根目录**执行命令。脚本以当前 Git 根目录构建，不会使用旧对比 APK。
-- 仅功能开发／修复或用户明确要求运行时操作模拟器。审阅、规划或仅安装 skill 不授权业务操作。
+- 仅功能开发／修复、实验范围内必要的本地验证或用户明确要求运行时操作模拟器。审阅、规划、纯文档修改或仅安装 skill 不授权设备/业务操作。
 - 若当前项目存在 `AGENTS.md`，先读取它；同时阅读 [README 的本地开发与构建说明](../../../README.md)，不存在的指导文件不作为运行前提。保护未提交修改，遵循项目 worktree 开发规则；项目内 skill、脚本和文档改动同样需要走提交、PR 与 review 流程。本 skill 的调用仅执行本地验收，不独立触发 push、PR、合并或部署。
-- 阅读 [references/local-testing.md](references/local-testing.md)，了解独立 AVD 创建、任务预留、环境、键盘和常见失败。创建新 AVD 与清空测试 App 数据需用户明确授权，不能因安装 skill 推定授权。
+- 阅读 [references/local-testing.md](references/local-testing.md)，了解独立 AVD 创建、任务预留、环境、键盘和常见失败。**本仓库 [AGENTS.md](../../../AGENTS.md)「独立本地测试的常设授权」已允许任务隔离测试，不逐次等待用户 approve**；来源/身份满足下述边界后直接执行。授权来自用户和项目指令，不来自安装 skill；其他仓库须核对其授权，不能照搬本仓库授权。
 - 将本 skill 的 `scripts/e2e.mjs` 解析为**绝对路径**；以下 `<runner>` 代表它。不要把占位符原样交给 shell。
+
+## 无需再次 approve 的边界
+
+- 为本任务新建专用 AVD，未登录个人账号、未导入真实用户数据、不与其他任务共享；仅使用合成测试数据。同一任务可在创建来源/身份记录仍可核实时复用。
+- 在任务 worktree 的 Git 忽略 `build/local-e2e/` 记录创建来源、所属任务、AVD 名称/端口及测试数据性质。名称前缀和本机配置不是可丢弃证明；runner 的预留/启动记录也不能代替数据来源判断。
+- 覆盖已安装工具下的创建、启动、安装测试 APK、本 App 操作/测试数据清空、证据采集和本任务设备关闭。不包括真机、共享/来源不明设备、用户账号/数据、其他任务设备、全设备 wipe 或删除历史 AVD/产物；越界或身份冲突时停止并询问必要授权，或准备全新隔离设备。
+- 不改变 PR 独立审查、必需人工审批、分支保护或实验交付限制；不自动安装/升级工具、接受 SDK 许可、调用云测试或绕过安全控制。
 
 ## 执行步骤
 
 1. `node <runner> doctor`：检查环境、固定 Maestro 版本、专用 AVD 和当前项目。
    - 配置文件是当前项目根目录 `.pi/pharmacy-e2e.local.json`，只含工具路径和专用 AVD 名称，不能放凭据。
    - 缺工具、未获 ADB 授权、端口被其他 AVD 占用时停止，报告阻塞；不自动安装、升级、禁用安全策略或操作其他设备。
-2. **先隔离设备，再 `node <runner> start`**：每个并行任务必须使用独立、明确授权的 AVD 与空闲偶数端口对；不能共享旧的 Comparison AVD。`start` 预留 AVD 名称和端口直到 `stop`，仅启动当前任务设备；已运行设备仅在本任务预留和启动身份均匹配时复用，不附着到其他任务。
-3. 先取得用户对**配置的 AVD 可丢弃、允许本次清空测试 App 数据**的明确授权，再运行 `node <runner> run --allow-test-data-reset`：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
-   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。AVD 名称前缀不证明数据可丢弃；未明确授权时停止询问，不自行补上确认参数。每次 `run` 均需显式 opt-in，避免子流程清数据漏检；在执行流程前重新验证设备身份及本次确认。smoke YAML 本身还检查 `PHARMACY_ALLOW_TEST_DATA_RESET`，runner 仅在确认后传入该值；未经确认不能直接设置变量绕过入口。
-   - 可以 `node <runner> run --allow-test-data-reset --flow <absolute-yaml-path>` 执行本任务相关的小流程。即使自定义流程不清数据，也要求确认，因为入口不声称提供 YAML 沙箱。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
+2. **先隔离设备，再 `node <runner> start`**：每个并行任务必须使用符合常设授权或另行获明确授权的独立 AVD 与空闲偶数端口对；不能共享旧的 Comparison AVD。`start` 预留 AVD 名称和端口直到 `stop`，仅启动当前任务设备；已运行设备仅在本任务预留和启动身份均匹配时复用，不附着到其他任务。
+3. 核实上述任务隔离边界后，**由 agent 直接运行** `node <runner> run --allow-test-data-reset`，不再请求逐次人工 approve：构建当前项目 debug APK，校验 AVD 身份，安装 APK，运行最小验收，保存 SHA-256、Git 提交、JUnit 和诊断产物。
+   - 默认 [flows/smoke.yaml](flows/smoke.yaml) 会**清空专用模拟器上本 App 的测试数据**。每次 `run` 仍显式传入 `--allow-test-data-reset`，避免子流程清数据漏检；它是 agent 按常设授权选择的执行标记，不是新的用户审批要求。来源不明或不符合授权时不能自动补参数，先停止处理。
+   - 执行前仍重新验证设备身份和执行标记。smoke YAML 继续检查 `PHARMACY_ALLOW_TEST_DATA_RESET`，只由 runner 在标记通过后传入，不能直接设置变量绕过入口。缺标记时 runner 仍拒绝执行，保持 fail-closed。
+   - 可以 `node <runner> run --allow-test-data-reset --flow <absolute-yaml-path>` 执行本任务相关的小流程。即使自定义流程不清数据，仍传执行标记并满足同一隔离边界，因为入口不声称提供 YAML 沙箱。流程必须在当前项目或 skill 内，根 `appId` 必须保持 `com.thousandofwind.pharmacy`。运行前审阅所有子流程；不允许云操作或切换到私人应用。
    - 没有“跳过构建并当作当前版本通过”的选项。
 4. 失败后 `node <runner> inspect` 获取精简的界面文字、ID、边界；`node <runner> screenshot` 保存当前屏幕。通过 `read` 查看失败截图和相应层级，定位问题后重跑。
    - 不仅凭编译、RPC 成功、点击成功或“保存成功”提示判断功能正确。断言保存后的卡片、详情、余量和重启后的数据。
@@ -38,7 +46,7 @@ compatibility: Windows, Node.js 22+, JDK 17, Android SDK API 34 and an authorize
 - AVD 与端口预留跨命令存续；`run/inspect/screenshot/stop` 要求本任务预留，不能跳过 `start` 操作旧运行设备。预留冲突或前次启动残留时停止，不自动删除、抢占或改选另一台设备。
 - 所有 ADB、Maestro、临时测试脚本与手动验收都明确指定本任务串口；禁止省略 `-s/--udid` 或使用共享默认设备。非本 runner 的工具也必须尊重此边界。
 - 若看到其他任务界面/数据、设备身份变化或端口占用，立即停止操作，不 force-stop/卸载/清空其他 App，不关闭其他任务的模拟器。
-- 本 runner 不自动创建、下载或 wipe AVD。获授权后可以用现有 SDK 官方 avdmanager 单独创建任务 AVD，操作步骤见本地配置说明；不复制个人设备或账号数据。
+- 本 runner 不自动创建、下载或 wipe AVD。符合项目常设授权时，agent 可直接用已安装 SDK 官方 avdmanager 单独创建任务 AVD，无需再次 approve；操作步骤见本地配置说明，不复制个人设备或账号数据。
 
 ## 新功能验收策略
 
