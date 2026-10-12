@@ -4,12 +4,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import java.time.Instant
@@ -38,7 +40,8 @@ fun EditorScreen(
     val editing = draft.id != 0L
     val currentOcr = hasCurrentOcrResults(draft, baseline)
     val cover = draft.coverPhoto.takeIf { it in draft.photos } ?: draft.photos.firstOrNull()
-    var tab by rememberSaveable(draft.id) { mutableIntStateOf(if (editing) 0 else 2) }
+    var tab by rememberSaveable(draft.id) { mutableIntStateOf(0) }
+    var warnings by rememberSaveable(draft.id) { mutableStateOf(false) }
     var cropPhoto by rememberSaveable(draft.id) { mutableStateOf<String?>(null) }
     var raw by rememberSaveable(draft.id) { mutableStateOf(false) }
     var assign by rememberSaveable(draft.id) { mutableStateOf(false) }
@@ -72,6 +75,17 @@ fun EditorScreen(
         text = { Text("成功保存后清理其他旧照片。保存前可关闭此选项或更换药品图；取消编辑保留原记录。") },
         confirmButton = { TextButton(onClick = { update { copy(keepExistingPhotos = false, reviewed = false) }; reducePhotos = false }, enabled = !state.busy && !state.scanning) { Text("确认仅保留药品图") } },
         dismissButton = { TextButton(onClick = { reducePhotos = false }, enabled = !state.busy) { Text("取消") } })
+    var lastRaw by rememberSaveable(draft.id) { mutableStateOf(draft.rawText) }
+    LaunchedEffect(draft.rawText, state.scanning) {
+        if (!state.scanning && draft.rawText != lastRaw) {
+            if (currentOcr) tab = 0
+            lastRaw = draft.rawText
+        }
+    }
+    if (warnings) AlertDialog(onDismissRequest = { warnings = false }, title = { Text("识别提示 · 请对照原图") },
+        text = { Column(Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            draft.candidates.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        } }, confirmButton = { TextButton(onClick = { warnings = false }) { Text("知道了") } })
     LaunchedEffect(state.session.error) {
         if (state.session.error != null) {
             val leafletError = MedicineInformationField.entries.any { it.group == MedicineInformationGroup.LEAFLET && medicineInformationFieldError(it, draft.information[it]) != null }
@@ -87,9 +101,12 @@ fun EditorScreen(
             OutlinedButton(onClick = { tab = 2; picker() }, enabled = !state.scanning && !state.busy, modifier = Modifier.weight(1f)) { Text("相册添加") }
         }
         TabRow(selectedTabIndex = tab) {
-            listOf("基本资料", "说明书", "照片 / 识别").forEachIndexed { index, label -> Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) }) }
+            listOf("基本资料", "说明书", "照片 / 原文").forEachIndexed { index, label -> Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) }) }
         }
-        if (currentOcr && tab != 2) TextButton(onClick = { tab = 2 }, modifier = Modifier.fillMaxWidth()) { Text("本次识别结果 → 前往核对") }
+        if (currentOcr) Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("识别建议已放到对应栏位，采用只填空白。", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (draft.candidates.warnings.isNotEmpty()) TextButton(onClick = { warnings = true }) { Text("提示 ${draft.candidates.warnings.size}") }
+        }
         if (state.scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
         key(draft.id, tab) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -97,18 +114,22 @@ fun EditorScreen(
                 when (tab) {
                     0 -> {
                         Text(if (editing) "修改已保存的资料" else "核对并填写基本资料", style = MaterialTheme.typography.titleMedium)
+                        if (currentOcr && fillEmptyOcrFields(draft) != draft) TextButton(onClick = { update { fillEmptyOcrFields(this) } }, enabled = !state.busy && !state.scanning) { Text("采用空白基本资料（不含说明书安全条目）") }
                         PaperField(draft.name, { value -> update { copy(name = value, ocrSelectedName = "", reviewed = if (editing && !currentOcr) reviewed else false) } },
                             label = "药品名称（必填）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(), isError = state.session.error != null && draft.name.isBlank())
+                        OcrNameSuggestions(draft, !state.busy && !state.scanning, update)
                         PaperField(draft.expiry, { value -> update { copy(expiry = value, reviewed = if (editing && !currentOcr) reviewed else false) } },
                             label = "有效期至（可选）", enabled = !state.busy, isError = draft.expiry.isNotBlank() && expiryDay(draft.expiry) == null,
                             trailingIcon = { TextButton(onClick = { datePicker = "expiry" }, enabled = !state.busy) { Text("选日期") } },
                             supportingText = { Text("YYYY-MM 或 YYYY-MM-DD；月份按月末计算，生产日期不代填有效期。", style = MaterialTheme.typography.bodySmall) }, modifier = Modifier.fillMaxWidth())
+                        OcrFieldSuggestion("有效期至", draft.candidates.expiry, draft.expiry, !state.busy && !state.scanning) { update { adoptOcrField(this, OCR_TARGET_EXPIRY) } }
                         PaperField(draft.information.productionDate, { value ->
                             update { copy(information = information.withValue(MedicineInformationField.PRODUCTION_DATE, value), reviewed = if (editing && !currentOcr) reviewed else false) }
                         }, label = "生产日期（可选）", enabled = !state.busy, modifier = Modifier.fillMaxWidth(),
                             isError = medicineInformationFieldError(MedicineInformationField.PRODUCTION_DATE, draft.information.productionDate) != null,
                             trailingIcon = { TextButton(onClick = { datePicker = "production" }, enabled = !state.busy) { Text("选日期") } },
                             supportingText = { Text("YYYY-MM 或 YYYY-MM-DD；独立记录，不用于推算有效期。", style = MaterialTheme.typography.bodySmall) })
+                        OcrFieldSuggestion("生产日期", draft.candidates.information.productionDate, draft.information.productionDate, !state.busy && !state.scanning) { update { adoptOcrField(this, MedicineInformationField.PRODUCTION_DATE.column) } }
                         if (!editing && draft.groupKey.isBlank()) {
                             val related = state.medicines.firstOrNull { sameMedicineHint(draft, it) && it.groupKey.isNotBlank() }
                             if (related != null) OutlinedButton(onClick = { update { copy(groupKey = related.groupKey, groupName = related.groupName) } }, enabled = !state.busy) { Text("关联到已有组：${related.groupName}") }
@@ -117,18 +138,22 @@ fun EditorScreen(
                         Text("余量留空为未知，0为已用完；不同单位不相加。", style = MaterialTheme.typography.bodySmall)
                         MedicineInformationInput(MedicineInformationField.STORAGE_LOCATION, draft.information.storageLocation, !state.busy) { value -> update { copy(information = information.withValue(MedicineInformationField.STORAGE_LOCATION, value)) } }
                         Text("品牌、规格与生产资料", style = MaterialTheme.typography.titleMedium)
-                        MedicineInformationFields(draft.information, MedicineInformationGroup.IDENTITY, !state.busy,
-                            exclude = setOf(MedicineInformationField.STORAGE_LOCATION, MedicineInformationField.PRODUCTION_DATE)) { field, value -> update { copy(information = information.withValue(field, value)) } }
-                        MedicineTagEditor(draft, state.availableTags, !state.busy, update)
+                        MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.IDENTITY && it !in setOf(MedicineInformationField.STORAGE_LOCATION, MedicineInformationField.PRODUCTION_DATE) }.forEach { field ->
+                            DraftInformationWithOcr(field, draft, !state.busy && !state.scanning, update)
+                        }
+                        MedicineTagEditor(draft, state.availableTags, !state.busy && !state.scanning, update, ocrSuggestions = true)
                         PaperField(draft.notes, { value -> update { copy(notes = value) } }, label = "备注", singleLine = false, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
                     }
                     1 -> {
                         LeafletDisclaimer()
                         PaperField(draft.efficacy, { value -> update { copy(efficacy = value) } }, label = "适应症 / 功能主治（原文）", singleLine = false, minLines = 2, maxLines = 5, enabled = !state.busy, modifier = Modifier.fillMaxWidth())
-                        MedicineInformationFields(draft.information, MedicineInformationGroup.LEAFLET, !state.busy) { field, value -> update { copy(information = information.withValue(field, value)) } }
+                        OcrFieldSuggestion("适应症 / 功能主治", draft.candidates.efficacy, draft.efficacy, !state.busy && !state.scanning) { update { adoptOcrField(this, OCR_TARGET_EFFICACY) } }
+                        MedicineInformationField.entries.filter { it.group == MedicineInformationGroup.LEAFLET }.forEach { field ->
+                            DraftInformationWithOcr(field, draft, !state.busy && !state.scanning, update)
+                        }
                     }
                     2 -> {
-                        Text("照片与识别结果", style = MaterialTheme.typography.titleMedium)
+                        Text("照片与识别原文", style = MaterialTheme.typography.titleMedium)
                         if (draft.photos.isEmpty()) Text("点击顶部“拍照添加”或“相册添加”；也可直接填写基本资料。", style = MaterialTheme.typography.bodySmall)
                         else {
                             Text("点击放大；旋转按钮直接显示在照片下方。", style = MaterialTheme.typography.bodySmall)
@@ -144,9 +169,9 @@ fun EditorScreen(
                             Text(if (draft.keepExistingPhotos && baseline.photos.isNotEmpty()) "保存时保留未移除的旧照片和选中的药品图，其他本次识别照片清理。"
                                 else "保存时仅保留选中的药品图。保存失败保留草稿；取消编辑保留旧照片。", style = MaterialTheme.typography.bodySmall)
                         }
-                        if (currentOcr) OcrCandidatesPanel(draft, state.busy || state.scanning, update)
-                        else if (draft.rawText.isNotBlank()) {
-                            OutlinedButton(onClick = { raw = !raw }, modifier = Modifier.fillMaxWidth()) { Text(if (raw) "收起历史原文" else "查看 / 复制历史原文") }
+                        if (draft.rawText.isNotBlank()) {
+                            Text("识别建议已放在基本资料/说明书对应栏位。原文可能包含历史照片结果，长按可选择复制。", style = MaterialTheme.typography.bodySmall)
+                            OutlinedButton(onClick = { raw = !raw }, modifier = Modifier.fillMaxWidth()) { Text(if (raw) "收起识别原文" else "查看 / 复制识别原文") }
                             if (raw) SelectableOcrText(draft.rawText)
                             OutlinedButton(onClick = { assign = true }, enabled = !state.busy && !state.scanning, modifier = Modifier.fillMaxWidth()) { Text("粘贴原文 → 指定资料栏") }
                         }
@@ -159,11 +184,21 @@ fun EditorScreen(
         // Fixed above Save, stays visible after checking so it is always reversible.
         if (showOcrConfirmation(draft, baseline)) Surface(color = MaterialTheme.colorScheme.primaryContainer,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = draft.reviewed, onCheckedChange = { value -> update { copy(reviewed = value) } }, enabled = !state.busy && !state.scanning)
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(value = draft.reviewed, role = Role.Checkbox, enabled = !state.busy && !state.scanning,
+                onValueChange = { value -> update { copy(reviewed = value) } }).padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = draft.reviewed, onCheckedChange = null, enabled = !state.busy && !state.scanning)
+                Spacer(Modifier.width(8.dp))
                 Text(if (draft.reviewed) "已核对 · 再点可取消确认" else "我已对照照片核对日期及采用资料", style = MaterialTheme.typography.bodySmall)
             }
         }
+    }
+}
+
+@Composable
+private fun DraftInformationWithOcr(field: MedicineInformationField, draft: MedicineDraft, enabled: Boolean, update: (MedicineDraft.() -> MedicineDraft) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        MedicineInformationInput(field, draft.information[field], enabled) { value -> update { copy(information = information.withValue(field, value)) } }
+        OcrFieldSuggestion(field.label, draft.candidates.information[field], draft.information[field], enabled) { update { adoptOcrField(this, field.column) } }
     }
 }
 

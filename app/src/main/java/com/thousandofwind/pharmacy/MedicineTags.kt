@@ -24,7 +24,7 @@ fun MedicineTags(tags: List<String>, limit: Int = MAX_MEDICINE_TAGS) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun MedicineTagEditor(draft: MedicineDraft, availableTags: List<String>, enabled: Boolean, update: (MedicineDraft.() -> MedicineDraft) -> Unit) {
+fun MedicineTagEditor(draft: MedicineDraft, availableTags: List<String>, enabled: Boolean, update: (MedicineDraft.() -> MedicineDraft) -> Unit, ocrSuggestions: Boolean = false) {
     val inputError = medicineTagsError(draft.tags + draft.tagInput)
     fun addInput() {
         if (enabled && draft.tagInput.isNotBlank() && inputError == null) {
@@ -34,6 +34,7 @@ fun MedicineTagEditor(draft: MedicineDraft, availableTags: List<String>, enabled
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("标签（可选，${draft.tags.size}/$MAX_MEDICINE_TAGS）", style = MaterialTheme.typography.titleSmall)
         Text("用于整理和查找，不作为用药建议；用途、使用方式与保存条件请核对包装。", style = MaterialTheme.typography.bodySmall)
+        if (ocrSuggestions) OcrTagSuggestions(draft, enabled, update)
         if (draft.tags.isNotEmpty()) {
             Text("已选 · 点击移除", style = MaterialTheme.typography.labelMedium)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -154,7 +154,7 @@ fun PhotoStrip(
         photos.forEachIndexed { index, photo ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 AsyncImage(
-                    model = photo, contentDescription = "查看照片 ${index + 1}", contentScale = ContentScale.Crop,
+                    model = photo, contentDescription = "查看照片 ${index + 1}", contentScale = ContentScale.Fit,
                     modifier = Modifier.size(156.dp).clip(RoundedCornerShape(16.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant).clickable { enlarged = photo }
                 )
