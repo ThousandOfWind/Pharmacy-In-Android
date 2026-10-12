@@ -32,6 +32,8 @@
 
 Key 以 Android Keystore AES-GCM 加密保存在 noBackupFilesDir，并把完整连接配置与 Key 放入单一 AtomicFile；失败写入保留旧配置/Key，不会分步提交或混用资源。Key 不进入 UI 状态、Bundle、Room、系统备份或药箱备份。连接元数据和 AI 会话也排除系统 cloud/device-transfer 备份；药箱原备份行为不变。删除连接清除本地密文，不撤销 Azure 远端 Key；需要轮换应在 Azure 官方控制台处理。
 
+服务地域、数据保留、安全监测和可能的跨境处理取决于用户选择的 Azure 资源及适用条款；不能承诺境内处理或零保留。参见[隐私说明](privacy.md)及 [Azure 官方数据隐私说明](https://learn.microsoft.com/en-us/legal/cognitive-services/openai/data-privacy)。SDK 的 MIT 许可不替代服务授权与数据处理要求。
+
 删除对话不能撤销 Azure 已接收的内容。切换连接后不能把旧会话发送到新连接，须新建；API Key 不写入会话配置。会话只保存完成问答，不持久保存工具参数全文；历史库存回答标记为可能过时；模型不保证每轮自动重查。开启查询权限后可明确要求重新查询，库存当前值仍以详情页为准。
 
 ## 工具链
