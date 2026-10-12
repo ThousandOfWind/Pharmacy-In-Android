@@ -72,8 +72,12 @@ interface MedicineDao {
     @Query("UPDATE medicines SET group_key = :key, group_name = :name WHERE id = :id")
     suspend fun associateGroup(id: Long, key: String, name: String)
 
-    @Query("DELETE FROM medicines WHERE id = :id")
-    suspend fun delete(id: Long)
+    @Query("DELETE FROM medicines WHERE id IN (:ids)")
+    suspend fun deleteRecords(ids: List<Long>)
+
+    // Undo must not overwrite a record independently restored or edited since deletion.
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun restoreRecords(records: List<MedicineEntity>)
 }
 
 @Database(entities = [MedicineEntity::class], version = 6, exportSchema = false)

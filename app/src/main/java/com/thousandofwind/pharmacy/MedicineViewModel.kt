@@ -103,7 +103,8 @@ data class Session(
     val baseline: MedicineDraft = MedicineDraft(),
     val error: String? = null,
     val highlightId: Long = 0,
-    val tag: String? = null, val groupKey: String = ""
+    val tag: String? = null, val groupKey: String = "",
+    val managing: Boolean = false, val deletionIds: Set<Long> = emptySet()
 )
 
 data class UiState(
@@ -117,6 +118,7 @@ data class UiState(
     val selected get() = medicines.firstOrNull { it.id == session.selectedId }
     val selectedGroup get() = cabinetGroups(medicines).firstOrNull { it.key == session.groupKey }
     val availableTags get() = normalizeMedicineTags(medicines.flatMap { it.tags() }).sorted()
+    val selectedForDeletion get() = selectedVisibleMedicines(visible, session.deletionIds)
     val visible get() = medicines.filter { item ->
         matchesMedicineTextAndTag(item.name, item.efficacy, item.notes, item.tags(), session.search, session.tag,
             item.information.searchableValues() + item.groupName) &&
@@ -130,7 +132,8 @@ data class UiState(
     }
 }
 
-data class UiNotice(val text: String, val canUndo: Boolean = false)
+data class UiNotice(val text: String, val undoToken: String? = null)
+private data class DeletedBatch(val token: String, val records: List<MedicineEntity>)
 private data class Records(val items: List<MedicineEntity> = emptyList(), val loaded: Boolean = false, val error: String? = null)
 
 class MedicineViewModel(application: Application, private val savedState: SavedStateHandle) : AndroidViewModel(application) {
@@ -143,14 +146,16 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         filter = runCatching { CabinetFilter.valueOf(savedState["filter"] ?: "ALL") }.getOrDefault(CabinetFilter.ALL),
         draft = MedicineDraft.fromBundle(savedState["draft"]),
         baseline = MedicineDraft.fromBundle(savedState["baseline"]),
-        tag = savedState["tag"], groupKey = savedState["groupKey"] ?: ""
+        tag = savedState["tag"], groupKey = savedState["groupKey"] ?: "",
+        managing = savedState["managing"] ?: false,
+        deletionIds = savedState.get<LongArray>("deletionIds")?.toSet().orEmpty()
     ))
     private val busy = MutableStateFlow(false)
     private val scanning = MutableStateFlow(false)
     private val notices = Channel<UiNotice>(Channel.BUFFERED)
     val events = notices.receiveAsFlow()
     private var scanGeneration = 0
-    private var removed: MedicineEntity? = null
+    private var removed: DeletedBatch? = null
     private val records = flow {
         // Promote readable legacy cache photos before exposing editable records. Missing files stay
         // linked rather than causing migration to erase data or invent a replacement image.
@@ -178,12 +183,31 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         savedState["screen"] = value.screen.name; savedState["selectedId"] = value.selectedId
         savedState["search"] = value.search; savedState["filter"] = value.filter.name
         savedState["tag"] = value.tag; savedState["groupKey"] = value.groupKey
+        savedState["managing"] = value.managing; savedState["deletionIds"] = value.deletionIds.toLongArray()
         savedState["draft"] = value.draft.toBundle(); savedState["baseline"] = value.baseline.toBundle()
     }
 
-    fun search(value: String) = change { copy(search = value, highlightId = 0) }
-    fun filter(value: CabinetFilter) = change { copy(filter = value, highlightId = 0) }
-    fun filterTag(value: String?) = change { copy(tag = value, highlightId = 0) }
+    fun search(value: String) { if (!busy.value) change { copy(search = value, highlightId = 0, deletionIds = emptySet()) } }
+    fun filter(value: CabinetFilter) { if (!busy.value) change { copy(filter = value, highlightId = 0, deletionIds = emptySet()) } }
+    fun filterTag(value: String?) { if (!busy.value) change { copy(tag = value, highlightId = 0, deletionIds = emptySet()) } }
+
+    fun manage() {
+        if (busy.value || scanning.value || !uiState.value.loaded || uiState.value.databaseError != null) return
+        change { copy(managing = true, deletionIds = emptySet(), highlightId = 0) }
+    }
+
+    fun finishManaging() { if (!busy.value) change { copy(managing = false, deletionIds = emptySet()) } }
+
+    fun toggleDeletion(id: Long) {
+        if (busy.value || !session.value.managing || uiState.value.visible.none { it.id == id }) return
+        change { copy(deletionIds = if (id in deletionIds) deletionIds - id else deletionIds + id) }
+    }
+
+    fun selectVisibleForDeletion() {
+        if (busy.value || !session.value.managing) return
+        val ids = uiState.value.visible.map { it.id }.toSet()
+        change { copy(deletionIds = if (ids.isNotEmpty() && deletionIds.containsAll(ids)) emptySet() else ids) }
+    }
     fun open(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id, groupKey = "") }
     fun openGroup(group: CabinetGroup) = change { copy(screen = Screen.GROUP, groupKey = group.key) }
     fun openStock(item: MedicineEntity) = change { copy(screen = Screen.DETAIL, selectedId = item.id) }
@@ -251,6 +275,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
 
     fun back() {
         if (busy.value) return
+        if (session.value.screen == Screen.CABINET && session.value.managing) { finishManaging(); return }
         val discarded = unreferencedPhotos(session.value.draft.photos, session.value.baseline.photos)
         scanGeneration++
         scanning.value = false
@@ -273,7 +298,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         if (candidates.isEmpty()) return true
         return try {
             db.withTransaction {
-                val protected = dao.snapshot().flatMap { it.photos() } + removed?.photos().orEmpty() +
+                val protected = dao.snapshot().flatMap { it.photos() } + removed?.records.orEmpty().flatMap { it.photos() } +
                     session.value.draft.photos + session.value.baseline.photos
                 withContext(Dispatchers.IO) {
                     PhotoStore.deletePhotos(getApplication(), unreferencedPhotos(candidates, protected))
@@ -337,35 +362,63 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         }
     }
 
-    fun remove(item: MedicineEntity) {
-        if (busy.value) return
+    fun remove(ids: Set<Long>, done: (Boolean) -> Unit) {
+        val current = uiState.value
+        if (busy.value || scanning.value || !current.loaded || current.databaseError != null) return
+        if (session.value.managing && !current.selectedForDeletion.map { it.id }.toSet().containsAll(ids)) {
+            report("列表已变化，请重新选择后确认"); done(false); return
+        }
         busy.value = true
         viewModelScope.launch {
             try {
-                dao.delete(item.id)
-                removed = item
-                change { copy(screen = Screen.CABINET, selectedId = 0) }
-                notices.send(UiNotice("已移出药箱", canUndo = true))
+                val deleted = db.withTransaction {
+                    val targets = deletionTargets(dao.snapshot(), ids)
+                    // Keep bind parameters below SQLite's limit; the whole batch remains atomic.
+                    targets.map { it.id }.chunked(900).forEach { dao.deleteRecords(it) }
+                    targets
+                }
+                val previous = removed
+                val batch = DeletedBatch(UUID.randomUUID().toString(), deleted)
+                removed = batch
+                change { copy(screen = Screen.CABINET, selectedId = 0, groupKey = "", managing = false,
+                    deletionIds = emptySet(), highlightId = 0) }
+                done(true)
+                val cleaned = cleanupPhotos(previous?.records.orEmpty().flatMap { it.photos() })
+                notices.send(UiNotice("已移出 ${deleted.size} 条库存记录" + if (cleaned) "" else "；部分旧照片清理失败", batch.token))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                notices.send(UiNotice("移除失败，请重试"))
+                notices.send(UiNotice("移出失败，未删除任何记录，请重新核对后重试")); done(false)
             } finally { busy.value = false }
         }
     }
 
-    fun undoRemove() {
-        val item = removed ?: return
-        if (busy.value) return
+    fun undoRemove(token: String) {
+        val batch = removed?.takeIf { it.token == token } ?: run { report("这次移出已无法撤销"); return }
+        if (busy.value) {
+            viewModelScope.launch { notices.send(UiNotice("正在处理其他操作，本次未撤销，请稍后重试", token)) }; return
+        }
         busy.value = true
         viewModelScope.launch {
             try {
-                dao.upsert(item); removed = null
-                change { copy(search = "", filter = CabinetFilter.ALL, tag = null, highlightId = item.id) }
-                notices.send(UiNotice("已恢复到药箱"))
+                db.withTransaction { dao.restoreRecords(batch.records) }
+                if (removed?.token == token) removed = null
+                // Restoring inventory must not navigate away from or discard a newly opened editor.
+                change { copy(search = "", filter = CabinetFilter.ALL, tag = null,
+                    managing = false, deletionIds = emptySet(), highlightId = batch.records.first().id) }
+                notices.send(UiNotice("已恢复 ${batch.records.size} 条库存记录"))
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                notices.send(UiNotice("恢复失败，请重试"))
+                notices.send(UiNotice("恢复失败，未覆盖现有记录，请重试", token))
             } finally { busy.value = false }
+        }
+    }
+
+    /** A stale snackbar must never expire or undo a newer batch. */
+    fun finishRemove(token: String) {
+        val batch = removed?.takeIf { it.token == token } ?: return
+        removed = null
+        viewModelScope.launch {
+            if (!cleanupPhotos(batch.records.flatMap { it.photos() })) report("已移出药箱；部分照片清理失败")
         }
     }
 
