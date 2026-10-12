@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -156,6 +157,8 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
     val events = notices.receiveAsFlow()
     private var scanGeneration = 0
     private var removed: DeletedBatch? = null
+    // Protect the next batch while the transaction commits and before its undo snapshot is published.
+    private var deletingPhotos: List<String> = emptyList()
     private val records = flow {
         // Promote readable legacy cache photos before exposing editable records. Missing files stay
         // linked rather than causing migration to erase data or invent a replacement image.
@@ -299,7 +302,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
         return try {
             db.withTransaction {
                 val protected = dao.snapshot().flatMap { it.photos() } + removed?.records.orEmpty().flatMap { it.photos() } +
-                    session.value.draft.photos + session.value.baseline.photos
+                    deletingPhotos + session.value.draft.photos + session.value.baseline.photos
                 withContext(Dispatchers.IO) {
                     PhotoStore.deletePhotos(getApplication(), unreferencedPhotos(candidates, protected))
                 }
@@ -373,6 +376,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             try {
                 val deleted = db.withTransaction {
                     val targets = deletionTargets(dao.snapshot(), ids)
+                    deletingPhotos = targets.flatMap { it.photos() }
                     // Keep bind parameters below SQLite's limit; the whole batch remains atomic.
                     targets.map { it.id }.chunked(900).forEach { dao.deleteRecords(it) }
                     targets
@@ -388,7 +392,7 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 notices.send(UiNotice("移出失败，未删除任何记录，请重新核对后重试")); done(false)
-            } finally { busy.value = false }
+            } finally { deletingPhotos = emptyList(); busy.value = false }
         }
     }
 
@@ -415,10 +419,16 @@ class MedicineViewModel(application: Application, private val savedState: SavedS
 
     /** A stale snackbar must never expire or undo a newer batch. */
     fun finishRemove(token: String) {
-        val batch = removed?.takeIf { it.token == token } ?: return
-        removed = null
         viewModelScope.launch {
-            if (!cleanupPhotos(batch.records.flatMap { it.photos() })) report("已移出药箱；部分照片清理失败")
+            // Do not expire photos between a new DELETE commit and publication of its undo batch.
+            // Claim busy without a suspension after waiting, then recheck this exact token.
+            busy.first { !it }
+            val batch = removed?.takeIf { it.token == token } ?: return@launch
+            busy.value = true
+            removed = null
+            try {
+                if (!cleanupPhotos(batch.records.flatMap { it.photos() })) report("已移出药箱；部分照片清理失败")
+            } finally { busy.value = false }
         }
     }
 
